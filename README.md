@@ -3,9 +3,9 @@
 <p align="center">
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 8" />
   <img src="https://img.shields.io/badge/platform-Windows%20x64-blue?style=flat-square" alt="Windows x64" />
-  <img src="https://img.shields.io/github/license/yourname/FastHasher?style=flat-square" alt="MIT License" />
-  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" />
+  <img src="https://img.shields.io/badge/MIT-green?logo=open-source-initiative" alt="MIT License" />
 </p>
+
 
 <p align="center">
   <b>FastHasher</b> 是一款为高性能而生的文件哈希计算与验证工具，支持 MD5、SHA1、SHA256、SHA512 等主流算法。<br>
@@ -175,3 +175,8 @@ A：项目基于 .NET 8，理论上可跨平台。但当前构建脚本仅针对
 
 ## 📄 许可证
 本项目采用 MIT 许可证。
+
+
+## 写在最后
+   此项目本来是自用，用于解决海量文件的管理问题，今天除夕顺手开源在 Gitee 上，如果你也有校验下载文件、备份对比的需求，欢迎试试看。 作者水平有限，代码简陋，功能初成，请大家多提意见！
+   新的一年，愿代码少 bug，生活多顺畅。大家除夕快乐！🧧
