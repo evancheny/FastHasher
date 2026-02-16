@@ -1,0 +1,939 @@
+﻿// FileProcessor.cs - 专业文件处理器（包含图表功能）
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace FastHasher
+{
+    // 文件处理器 - 增强显示和日志记录
+    public class FileProcessor
+    {
+        private readonly CancellationTokenSource cts = new CancellationTokenSource();
+        private readonly List<string> algorithms;
+        private readonly bool showTime;
+        private readonly bool recursive;
+        private readonly bool parallel;
+        public readonly int maxDegreeOfParallelism;
+        private readonly long minFileSize = 0;
+        private readonly long maxFileSize = long.MaxValue;
+        private readonly bool saveToFile; // 新增：是否保存到文件
+        private readonly string outputFilePath; // 新增：输出文件路径
+        private readonly bool consoleOutput; // 新增：控制台输出
+        private readonly Stopwatch totalStopwatch = new Stopwatch();
+        private long totalBytes = 0;
+        private readonly string logFilePath; // 新增：日志文件路径
+        
+        // 图表数据收集
+        private List<long> fileSizes = new List<long>();
+        private List<(double sizeMB, double timeMs)> performanceData = new List<(double, double)>();
+        
+        public FileProcessor(List<string> algorithms, bool showTime, bool recursive, bool parallel, 
+                           int maxDegreeOfParallelism = 0, 
+                           long minFileSize = 0, long maxFileSize = long.MaxValue,
+                           bool saveToFile = true, string outputFilePath = null, bool consoleOutput = false)
+        {
+            this.algorithms = algorithms;
+            this.showTime = showTime;
+            this.recursive = recursive;
+            this.parallel = parallel;
+            this.minFileSize = minFileSize;
+            this.maxFileSize = maxFileSize;
+            this.saveToFile = saveToFile;
+            this.outputFilePath = outputFilePath;
+            this.consoleOutput = consoleOutput;
+
+            // 核心优化：并行度校验+默认值设置（CPU逻辑线程数）
+            if (maxDegreeOfParallelism <= 0)
+            {
+                // 无有效值时，默认使用CPU逻辑线程数
+                this.maxDegreeOfParallelism = Environment.ProcessorCount;
+            }
+            else
+            {
+                // 手动指定值有效时，使用指定值（限制最大为CPU线程数*2，避免过度并行）
+                this.maxDegreeOfParallelism = Math.Min(maxDegreeOfParallelism, Environment.ProcessorCount * 2);
+            }
+            
+            // 设置日志文件路径
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            this.logFilePath = Path.Combine(Environment.CurrentDirectory, string.Format("FastHasher_{0}.log", timestamp));
+            
+            // 初始化日志系统
+            ProgressDisplay.InitializeLog(this.logFilePath);
+            
+            // 记录启动信息
+            ProgressDisplay.WriteToLog(string.Format("FastHasher 开始运行，时间: {0}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+            ProgressDisplay.WriteToLog(string.Format("算法: {0}", string.Join(", ", algorithms)));
+            ProgressDisplay.WriteToLog(string.Format("递归搜索: {0}", recursive ? "是" : "否"));
+            ProgressDisplay.WriteToLog(string.Format("并行处理: {0}", parallel ? "是" : "否"));
+            ProgressDisplay.WriteToLog(string.Format("并行线程数: {0}", this.maxDegreeOfParallelism));
+            ProgressDisplay.WriteToLog(string.Format("文件大小过滤: {0} - {1}", 
+                minFileSize > 0 ? ProgressDisplay.FormatSize(minFileSize) : "无限制", 
+                maxFileSize < long.MaxValue ? ProgressDisplay.FormatSize(maxFileSize) : "无限制"));
+        }
+        
+        public async Task ProcessFilesAsync(List<string> patterns)
+        {
+            ProgressDisplay.WriteToLog(string.Format("开始处理文件模式，模式数量: {0}", patterns.Count));
+            if (patterns.Count > 0)
+            {
+                ProgressDisplay.WriteToLog("文件模式列表:");
+                foreach (var pattern in patterns)
+                {
+                    ProgressDisplay.WriteToLog(string.Format("  - {0}", pattern));
+                }
+            }
+            
+            // 显示开始处理横幅
+            ProgressDisplay.WriteSection("文件处理开始");
+            
+            var files = ExpandFilePatterns(patterns, recursive, minFileSize, maxFileSize);
+            
+            if (files.Count == 0)
+            {
+                ProgressDisplay.WriteWarning("警告: 没有找到匹配的文件");
+                ProgressDisplay.WriteToLog("没有找到匹配的文件");
+                return;
+            }
+            
+            // 收集文件大小用于图表
+            fileSizes.Clear();
+            foreach (var file in files)
+            {
+                try
+                {
+                    fileSizes.Add(new FileInfo(file).Length);
+                }
+                catch { }
+            }
+            
+            // 计算总大小（用于进度显示）
+            totalBytes = CalculateTotalSize(files);
+            
+            // 显示文件统计信息
+            ProgressDisplay.WriteStatistics("文件统计", 
+                ("文件数量", files.Count.ToString("N0"), ConsoleColor.Yellow),
+                ("总大小", ProgressDisplay.FormatSize(totalBytes), ConsoleColor.White),
+                ("并行线程", maxDegreeOfParallelism.ToString(), maxDegreeOfParallelism == Environment.ProcessorCount ? ConsoleColor.Green : ConsoleColor.Yellow),
+                ("模式", parallel ? "并行" : "顺序", parallel ? ConsoleColor.Green : ConsoleColor.Gray)
+            );
+            
+            // 显示输出信息
+            if (saveToFile && !string.IsNullOrEmpty(outputFilePath))
+            {
+                ProgressDisplay.WriteInfo(string.Format("输出文件: {0}", outputFilePath));
+            }
+            else if (consoleOutput)
+            {
+                ProgressDisplay.WriteInfo("输出方式: 控制台");
+            }
+            
+            ProgressDisplay.WriteSeparator();
+            
+            // 记录到日志
+            ProgressDisplay.WriteToLog(string.Format("找到 {0} 个文件需要处理 | 总大小: {1}", files.Count, ProgressDisplay.FormatSize(totalBytes)));
+            ProgressDisplay.WriteToLog(string.Format("并行线程数: {0} {1}", maxDegreeOfParallelism, maxDegreeOfParallelism == Environment.ProcessorCount ? "(CPU默认)" : "(手动指定)"));
+            
+            totalStopwatch.Start();
+            var results = new List<Dictionary<string, string>>();
+            
+            // 记录开始时间
+            ProgressDisplay.WriteToLog("开始处理文件...");
+            var startTime = DateTime.Now;
+            ProgressDisplay.WriteToLog(string.Format("处理开始时间: {0}", startTime.ToString("yyyy-MM-dd HH:mm:ss")));
+            
+            if (parallel)
+            {
+                ProgressDisplay.WriteInfo("使用并行处理模式");
+                results = await ProcessFilesParallelAsync(files);
+            }
+            else
+            {
+                ProgressDisplay.WriteInfo("使用顺序处理模式");
+                results = await ProcessFilesSequentialAsync(files);
+            }
+            
+            totalStopwatch.Stop();
+            
+            // 记录结束时间
+            var endTime = DateTime.Now;
+            ProgressDisplay.WriteToLog(string.Format("处理结束时间: {0}", endTime.ToString("yyyy-MM-dd HH:mm:ss")));
+            ProgressDisplay.WriteToLog(string.Format("总处理时间: {0:F2}秒", totalStopwatch.Elapsed.TotalSeconds));
+            
+            // 输出结果
+            OutputResults(results);
+            
+            // 显示统计信息和图表
+            if (showTime)
+            {
+                ProgressDisplay.WriteSection("处理统计信息");
+                
+                ProgressDisplay.WriteStatistics("性能统计", 
+                    ("总时间", string.Format("{0:F2}秒", totalStopwatch.Elapsed.TotalSeconds), ConsoleColor.Yellow),
+                    ("文件数", files.Count.ToString("N0"), ConsoleColor.White),
+                    ("总大小", ProgressDisplay.FormatSize(totalBytes), ConsoleColor.White),
+                    ("平均速度", ProgressDisplay.FormatSpeed(totalBytes, totalStopwatch.Elapsed), ConsoleColor.Green),
+                    ("文件平均", string.Format("{0:F1}ms", totalStopwatch.Elapsed.TotalMilliseconds / Math.Max(1, files.Count)), ConsoleColor.DarkGreen)
+                );
+                
+                ProgressDisplay.WriteSeparator();
+                ProgressDisplay.WriteKeyValue("内存信息", PerformanceMonitor.GetMemoryInfo(), ConsoleColor.Gray);
+                ProgressDisplay.WriteKeyValue("线程信息", PerformanceMonitor.GetThreadInfo(), ConsoleColor.Gray);
+                ProgressDisplay.WriteSeparator();
+                
+                // 显示图表
+                ShowCharts();
+            }
+            
+            // 记录统计信息到日志
+            if (showTime)
+            {
+                ProgressDisplay.WriteToLog(string.Format("总处理时间: {0:F2}秒", totalStopwatch.Elapsed.TotalSeconds));
+                ProgressDisplay.WriteToLog(string.Format("文件数量: {0} | 总大小: {1}", files.Count, ProgressDisplay.FormatSize(totalBytes)));
+                ProgressDisplay.WriteToLog(string.Format("平均速度: {0}", ProgressDisplay.FormatSpeed(totalBytes, totalStopwatch.Elapsed)));
+                ProgressDisplay.WriteToLog(string.Format("平均每个文件: {0:F2}毫秒", totalStopwatch.Elapsed.TotalMilliseconds / Math.Max(1, files.Count)));
+                ProgressDisplay.WriteToLog(PerformanceMonitor.GetMemoryInfo());
+                ProgressDisplay.WriteToLog(PerformanceMonitor.GetThreadInfo());
+            }
+            
+            // 显示日志文件位置
+            ProgressDisplay.WriteSuccess(string.Format("处理完成！日志已保存到: {0}", logFilePath));
+        }
+        
+        // 显示图表
+        private void ShowCharts()
+        {
+            // 显示文件大小分布
+            if (fileSizes.Count > 0)
+            {
+                ProgressDisplay.WriteSection("文件大小分布图表");
+                ProgressDisplay.WriteSizeDistributionChart(fileSizes);
+            }
+            
+            // 显示性能图表
+            if (performanceData.Count > 0)
+            {
+                ProgressDisplay.WriteSection("性能分析图表");
+                
+                // 转换为图表数据格式
+                var scatterData = performanceData
+                    .Select(d => (d.sizeMB, d.timeMs, string.Format("大小:{0:F1}MB", d.sizeMB)))
+                    .ToList();
+                
+                ProgressDisplay.WriteScatterPlot("文件大小 vs 处理时间关系图", scatterData);
+                
+                // 显示性能统计条形图
+                if (performanceData.Count > 5)
+                {
+                    // 按大小分组统计平均时间
+                    var groupedData = performanceData
+                        .GroupBy(d => 
+                        {
+                            double sizeMB = d.sizeMB;
+                            if (sizeMB < 1) return "0-1MB";
+                            if (sizeMB < 10) return "1-10MB";
+                            if (sizeMB < 100) return "10-100MB";
+                            if (sizeMB < 1000) return "100MB-1GB";
+                            return "1GB+";
+                        })
+                        .Select(g => (
+                            label: g.Key,
+                            value: g.Average(d => d.timeMs),
+                            color: ConsoleColor.White
+                        ))
+                        .ToArray();
+                    
+                    ProgressDisplay.WriteHorizontalBarChart("不同大小文件的平均处理时间", groupedData);
+                }
+            }
+        }
+        
+        private long CalculateTotalSize(List<string> files)
+        {
+            long total = 0;
+            int successCount = 0;
+            int failCount = 0;
+            
+            ProgressDisplay.WriteInfo("正在计算文件总大小...");
+            
+            foreach (var file in files)
+            {
+                try
+                {
+                    long fileSize = new FileInfo(file).Length;
+                    total += fileSize;
+                    successCount++;
+                    
+                    // 每计算100个文件记录一次
+                    if (successCount % 100 == 0)
+                    {
+                        ProgressDisplay.WriteToLog(string.Format("已计算 {0} 个文件大小，当前总计: {1}", successCount, ProgressDisplay.FormatSize(total)));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failCount++;
+                    ProgressDisplay.WriteWarning(string.Format("无法获取文件大小: {0} - {1}", file, ex.Message));
+                }
+            }
+            
+            ProgressDisplay.WriteToLog(string.Format("文件大小计算完成: 成功 {0} 个，失败 {1} 个，总计大小: {2}", successCount, failCount, ProgressDisplay.FormatSize(total)));
+            
+            return total;
+        }
+
+        private async Task<List<Dictionary<string, string>>> ProcessFilesParallelAsync(List<string> files)
+        {
+            var results = new Dictionary<int, Dictionary<string, string>>();
+            var processedCount = 0;
+            var processedBytes = 0L;
+            var startTime = DateTime.UtcNow;
+            var lastUpdateTime = DateTime.UtcNow;
+            var updateLock = new object();
+            
+            // 预计算文件大小（用于进度显示）
+            ProgressDisplay.WriteInfo("正在预计算文件大小...");
+            var fileSizesArray = new long[files.Count];
+            for (int i = 0; i < files.Count; i++)
+            {
+                try
+                {
+                    fileSizesArray[i] = new FileInfo(files[i]).Length;
+                }
+                catch
+                {
+                    fileSizesArray[i] = 0;
+                }
+                
+                // 每计算100个文件记录一次
+                if (i % 100 == 0 && i > 0)
+                {
+                    ProgressDisplay.WriteToLog(string.Format("已预计算 {0}/{1} 个文件大小", i, files.Count));
+                }
+            }
+            
+            ProgressDisplay.WriteSuccess("文件大小预计算完成");
+            
+            // 开始显示进度
+            ProgressDisplay.UpdateProgressLine(string.Format("{0} 正在初始化并行处理，文件总数: {1}...", ProgressDisplay.GetSpinner(), files.Count));
+            
+            // 记录并行处理开始
+            ProgressDisplay.WriteToLog("开始并行处理文件...");
+            ProgressDisplay.WriteToLog(string.Format("并行线程数: {0}", maxDegreeOfParallelism));
+            
+            try
+            {
+                await Parallel.ForEachAsync(files.Select((f, i) => (file: f, index: i, size: fileSizesArray[i])), 
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = maxDegreeOfParallelism,
+                        CancellationToken = cts.Token
+                    }, 
+                    async (item, cancellationToken) =>
+                    {
+                        // 记录开始处理单个文件
+                        string fileName = Path.GetFileName(item.file);
+                        ProgressDisplay.WriteToLog(string.Format("开始处理文件: {0} (大小: {1})", fileName, ProgressDisplay.FormatSize(item.size)));
+                        
+                        var result = await FastHashCalculator.ComputeHashesAsync(
+                            item.file, 
+                            algorithms.ToArray(), 
+                            cancellationToken: cancellationToken);
+                        
+                        lock (results)
+                        {
+                            results[item.index] = result;
+                            processedCount++;
+                            processedBytes += item.size;
+                            
+                            // 收集性能数据用于图表
+                            if (result["success"] == "true" && 
+                                result.ContainsKey("size_mb_double") && 
+                                result.ContainsKey("time_ms_double"))
+                            {
+                                double sizeMB = double.Parse(result["size_mb_double"]);
+                                double timeMs = double.Parse(result["time_ms_double"]);
+                                lock (performanceData)
+                                {
+                                    performanceData.Add((sizeMB, timeMs));
+                                }
+                            }
+                        }
+                        
+                        // 记录文件处理完成
+                        if (result["success"] == "true")
+                        {
+                            ProgressDisplay.WriteToLog(string.Format("文件处理完成: {0} (用时: {1}ms)", fileName, result["time_ms"]));
+                        }
+                        else
+                        {
+                            ProgressDisplay.WriteError(string.Format("文件处理失败: {0} - {1}", fileName, result.ContainsKey("error") ? result["error"] : "未知错误"));
+                        }
+                        
+                        // 实时显示进度（只在直接模式下显示）
+                        // 限制更新频率，避免过多控制台操作影响性能
+                        var now = DateTime.UtcNow;
+                        if (now - lastUpdateTime > TimeSpan.FromMilliseconds(150))
+                        {
+                            lock (updateLock)
+                            {
+                                if (now - lastUpdateTime > TimeSpan.FromMilliseconds(150))
+                                {
+                                    UpdateParallelProgress(processedCount, files.Count, 
+                                                         processedBytes, totalBytes, 
+                                                         startTime, item.file);
+                                    lastUpdateTime = now;
+                                }
+                            }
+                        }
+                    });
+                    
+                // 最终完成时显示100%
+                ProgressDisplay.WriteProgressComplete(string.Format("并行处理完成: {0} 个文件", files.Count));
+                
+                // 记录并行处理完成
+                ProgressDisplay.WriteToLog(string.Format("并行处理完成，共处理 {0} 个文件", files.Count));
+            }
+            catch (OperationCanceledException)
+            {
+                ProgressDisplay.WriteToLog("处理被用户取消");
+                ProgressDisplay.WriteProgressComplete("处理被用户取消");
+            }
+            catch (Exception ex)
+            {
+                ProgressDisplay.WriteToLog(string.Format("处理过程中出现异常: {0}", ex.Message));
+                ProgressDisplay.WriteToLog(string.Format("异常堆栈: {0}", ex.StackTrace));
+                ProgressDisplay.WriteProgressComplete(string.Format("处理出错: {0}", ex.Message));
+            }
+            
+            // 按原始顺序排序
+            return results.OrderBy(kv => kv.Key).Select(kv => kv.Value).ToList();
+        }
+
+        private void UpdateParallelProgress(int processed, int total, long bytesProcessed, long totalBytes, 
+                                          DateTime startTime, string currentFile)
+        {
+            if (total == 0) return;
+            
+            double percentage = (double)processed / total;
+            var elapsed = DateTime.UtcNow - startTime;
+            string fileName = Path.GetFileName(currentFile);
+            
+            // 限制文件名长度
+            if (fileName.Length > 20)
+            {
+                fileName = fileName.Substring(0, 17) + "...";
+            }
+            
+            // 构建进度显示文本，包含文件名
+            string progressBar = ProgressDisplay.GetProgressBar(percentage);
+            string spinner = ProgressDisplay.GetSpinner();
+            string eta = ProgressDisplay.GetETA(elapsed, processed, total);
+            string speed = ProgressDisplay.FormatSpeed(bytesProcessed, elapsed);
+            string sizeInfo = string.Format("{0}/{1}", ProgressDisplay.FormatSize(bytesProcessed), ProgressDisplay.FormatSize(totalBytes));
+            
+            string progressText;
+            
+            // 根据控制台宽度选择显示格式
+            try
+            {
+                int consoleWidth = Console.WindowWidth - 2;
+                
+                if (consoleWidth >= 120)
+                {
+                    // 宽控制台：显示完整信息，包含文件名
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} 文件 | {5} | {6} | {7} | {8}线程 | 当前: {9}",
+                        spinner, progressBar, percentage, 
+                        processed, total, 
+                        sizeInfo, 
+                        speed, 
+                        eta, 
+                        maxDegreeOfParallelism,
+                        fileName);
+                }
+                else if (consoleWidth >= 100)
+                {
+                    // 较宽控制台
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} 文件 | {5} | {6} | 当前: {7}",
+                        spinner, progressBar, percentage, 
+                        processed, total, 
+                        sizeInfo, 
+                        speed,
+                        fileName);
+                }
+                else if (consoleWidth >= 80)
+                {
+                    // 中等控制台
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} 文件 | {5} | 当前: {6}",
+                        spinner, progressBar, percentage, 
+                        processed, total, 
+                        speed,
+                        fileName);
+                }
+                else if (consoleWidth >= 60)
+                {
+                    // 较窄控制台
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} 文件 | {5}",
+                        spinner, progressBar, percentage, 
+                        processed, total,
+                        fileName);
+                }
+                else
+                {
+                    // 窄控制台：简化显示，但仍然包含文件名
+                    progressText = string.Format("{0} {1:P1} {2}/{3} | {4}", 
+                        spinner, percentage, processed, total, fileName);
+                }
+                
+                ProgressDisplay.UpdateProgressLine(progressText);
+                
+                // 记录进度到日志（每隔10%或每处理100个文件记录一次）
+                if (processed % 100 == 0 || percentage % 0.1 < 0.01)
+                {
+                    ProgressDisplay.WriteToLog(string.Format("处理进度: {0}/{1} ({2:P1}) | 大小: {3}/{4} | 速度: {5}",
+                        processed, total, percentage, 
+                        ProgressDisplay.FormatSize(bytesProcessed), 
+                        ProgressDisplay.FormatSize(totalBytes),
+                        speed), false);
+                }
+            }
+            catch
+            {
+                // 如果获取控制台宽度失败，使用简化显示，包含文件名
+                progressText = string.Format("{0} 处理中: {1}/{2} 文件 ({3:P1}) | 当前: {4}", 
+                    spinner, processed, total, percentage, fileName);
+                Console.Write(string.Format("\r{0}", progressText));
+            }
+        }
+
+        private async Task<List<Dictionary<string, string>>> ProcessFilesSequentialAsync(List<string> files)
+        {
+            var results = new List<Dictionary<string, string>>();
+            var processedBytes = 0L;
+            var startTime = DateTime.UtcNow;
+            
+            ProgressDisplay.WriteToLog("开始顺序处理文件...");
+            ProgressDisplay.WriteToLog(string.Format("文件总数: {0}", files.Count));
+            
+            for (int i = 0; i < files.Count; i++)
+            {
+                if (cts.Token.IsCancellationRequested)
+                {
+                    ProgressDisplay.WriteToLog("处理被用户取消");
+                    ProgressDisplay.WriteProgressComplete("处理被用户取消");
+                    break;
+                }
+                
+                var file = files[i];
+                var fileSize = new FileInfo(file).Length;
+                var fileName = Path.GetFileName(file);
+                
+                // 记录开始处理文件
+                ProgressDisplay.WriteToLog(string.Format("开始处理文件 [{0}/{1}]: {2} (大小: {3})", 
+                    i + 1, files.Count, fileName, ProgressDisplay.FormatSize(fileSize)));
+                
+                // 显示当前文件处理进度
+                UpdateSequentialProgress(i, files.Count, processedBytes, totalBytes, 
+                                       startTime, fileName);
+                
+                var result = await FastHashCalculator.ComputeHashesAsync(
+                    file, 
+                    algorithms.ToArray(), 
+                    cancellationToken: cts.Token);
+                
+                results.Add(result);
+                processedBytes += fileSize;
+                
+                // 收集性能数据用于图表
+                if (result["success"] == "true" && 
+                    result.ContainsKey("size_mb_double") && 
+                    result.ContainsKey("time_ms_double"))
+                {
+                    double sizeMB = double.Parse(result["size_mb_double"]);
+                    double timeMs = double.Parse(result["time_ms_double"]);
+                    performanceData.Add((sizeMB, timeMs));
+                }
+                
+                // 记录文件处理结果
+                if (result["success"] == "true")
+                {
+                    ProgressDisplay.WriteToLog(string.Format("文件处理完成 [{0}/{1}]: {2} (用时: {3}ms)", 
+                        i + 1, files.Count, fileName, result["time_ms"]));
+                }
+                else
+                {
+                    ProgressDisplay.WriteError(string.Format("文件处理失败 [{0}/{1}]: {2} - {3}", 
+                        i + 1, files.Count, fileName, result.ContainsKey("error") ? result["error"] : "未知错误"));
+                }
+                
+                // 文件处理完成后立即更新进度
+                UpdateSequentialProgress(i + 1, files.Count, processedBytes, totalBytes, 
+                                       startTime, fileName);
+                
+                // 每处理10个文件记录一次详细进度
+                if ((i + 1) % 10 == 0)
+                {
+                    ProgressDisplay.WriteToLog(string.Format("进度报告: 已处理 {0}/{1} 文件 ({2:P1})", 
+                        i + 1, files.Count, (double)(i + 1) / files.Count), false);
+                }
+            }
+            
+            if (files.Count > 0)
+            {
+                ProgressDisplay.WriteProgressComplete(string.Format("顺序处理完成: {0} 个文件", files.Count));
+            }
+            
+            ProgressDisplay.WriteToLog(string.Format("顺序处理完成，共处理 {0} 个文件", results.Count));
+            
+            return results;
+        }
+        
+        private void UpdateSequentialProgress(int processed, int total, long bytesProcessed, long totalBytes, 
+                                            DateTime startTime, string currentFile)
+        {
+            if (total == 0) return;
+            
+            double percentage = (double)processed / total;
+            var elapsed = DateTime.UtcNow - startTime;
+            
+            // 限制文件名长度
+            string fileName = currentFile;
+            if (fileName.Length > 25)
+            {
+                fileName = fileName.Substring(0, 22) + "...";
+            }
+            
+            // 构建进度显示文本，包含文件名
+            string progressBar = ProgressDisplay.GetProgressBar(percentage);
+            string spinner = ProgressDisplay.GetSpinner();
+            string eta = ProgressDisplay.GetETA(elapsed, processed, total);
+            string speed = ProgressDisplay.FormatSpeed(bytesProcessed, elapsed);
+            
+            string progressText;
+            
+            try
+            {
+                int consoleWidth = Console.WindowWidth - 2;
+                
+                if (consoleWidth >= 120)
+                {
+                    // 宽控制台：显示完整信息，包含文件名
+                    progressText = string.Format("{0} [{1}] {2:P1} | {3}/{4} 文件 | {5} | {6} | {7} | 正在计算: {8}",
+                        spinner, progressBar, percentage, 
+                        processed, total, 
+                        string.Format("{0}/{1}", ProgressDisplay.FormatSize(bytesProcessed), ProgressDisplay.FormatSize(totalBytes)), 
+                        speed, 
+                        eta,
+                        fileName);
+                }
+                else if (consoleWidth >= 100)
+                {
+                    // 较宽控制台
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} 文件 | {5} | {6} | 当前: {7}",
+                        spinner, progressBar, percentage, 
+                        processed, total, 
+                        speed, 
+                        eta,
+                        fileName);
+                }
+                else if (consoleWidth >= 80)
+                {
+                    // 中等控制台
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} 文件 | {5} | 当前: {6}",
+                        spinner, progressBar, percentage, 
+                        processed, total, 
+                        speed,
+                        fileName);
+                }
+                else if (consoleWidth >= 60)
+                {
+                    // 较窄控制台
+                    progressText = string.Format("{0} {1} {2:P1} | {3}/{4} | {5}",
+                        spinner, progressBar, percentage, 
+                        processed, total,
+                        fileName);
+                }
+                else
+                {
+                    // 窄控制台：简化显示，但仍然包含文件名
+                    progressText = string.Format("{0} {1:P1} | {2}/{3} | {4}", 
+                        spinner, percentage, processed, total, fileName);
+                }
+                
+                ProgressDisplay.UpdateProgressLine(progressText);
+            }
+            catch
+            {
+                // 如果获取控制台宽度失败，使用简化显示，包含文件名
+                progressText = string.Format("{0} 正在处理 {1}/{2}: {3}", 
+                    spinner, processed, total, fileName);
+                Console.Write(string.Format("\r{0}", progressText));
+            }
+        }
+        
+        private void OutputEmptyResult()
+        {
+            Console.WriteLine("[]");
+        }
+        
+        private void OutputResults(List<Dictionary<string, string>> results)
+        {
+            string jsonOutput = BuildJsonOutput(results);
+            
+            // 记录输出结果信息
+            ProgressDisplay.WriteToLog(string.Format("开始输出结果，结果数量: {0}", results.Count));
+            
+            if (saveToFile && !string.IsNullOrEmpty(outputFilePath))
+            {
+                try
+                {
+                    // 确保目录存在
+                    string directory = Path.GetDirectoryName(outputFilePath);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+                    
+                    File.WriteAllText(outputFilePath, jsonOutput, Encoding.UTF8);
+                    
+                    ProgressDisplay.WriteSeparator();
+                    ProgressDisplay.WriteSuccess(string.Format("哈希计算结果已保存到: {0}", outputFilePath));
+                    ProgressDisplay.WriteInfo(string.Format("文件数量: {0}", results.Count));
+                    ProgressDisplay.WriteInfo(string.Format("结果文件大小: {0}", ProgressDisplay.FormatSize(new FileInfo(outputFilePath).Length)));
+                    
+                    // 记录到日志
+                    ProgressDisplay.WriteToLog(string.Format("哈希计算结果已保存到: {0}", outputFilePath));
+                    ProgressDisplay.WriteToLog(string.Format("结果文件大小: {0}", ProgressDisplay.FormatSize(new FileInfo(outputFilePath).Length)));
+                }
+                catch (Exception ex)
+                {
+                    ProgressDisplay.WriteError(string.Format("保存结果到文件失败: {0}", ex.Message));
+                    
+                    // 记录错误到日志
+                    ProgressDisplay.WriteError(string.Format("保存结果到文件失败: {0}", ex.Message));
+                    
+                    // 保存失败，回退到控制台输出
+                    if (consoleOutput)
+                    {
+                        Console.WriteLine(jsonOutput);
+                    }
+                }
+            }
+            else if (consoleOutput)
+            {
+                // 控制台输出
+                Console.WriteLine(jsonOutput);
+                ProgressDisplay.WriteToLog("结果已输出到控制台");
+            }
+            else
+            {
+                ProgressDisplay.WriteWarning("处理完成，但未指定输出方式");
+                ProgressDisplay.WriteInfo("使用 --output 参数指定输出文件，或使用 --console-output 查看结果");
+                
+                ProgressDisplay.WriteWarning("处理完成，但未指定输出方式");
+            }
+        }
+        
+        private string BuildJsonOutput(List<Dictionary<string, string>> results)
+        {
+            var output = new StringBuilder();
+            output.AppendLine("[");
+            
+            for (int i = 0; i < results.Count; i++)
+            {
+                var result = results[i];
+                output.Append("  {");
+                
+                bool first = true;
+                foreach (var kvp in result)
+                {
+                    if (!first) output.Append(",");
+                    first = false;
+                    output.Append(string.Format("\n    \"{0}\": \"{1}\"", kvp.Key, JsonEscape(kvp.Value)));
+                }
+                
+                output.Append("\n  }");
+                if (i < results.Count - 1) output.Append(",");
+                output.AppendLine();
+            }
+            
+            output.AppendLine("]");
+            return output.ToString();
+        }
+        
+        private static string JsonEscape(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "";
+            
+            var sb = new StringBuilder();
+            foreach (char c in input)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append(@"\\"); break;
+                    case '"': sb.Append("\\\""); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    default:
+                        if (c < ' ')
+                        {
+                            sb.AppendFormat("\\u{0:X4}", (int)c);
+                        }
+                        else
+                        {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+            return sb.ToString();
+        }
+        
+        private static List<string> ExpandFilePatterns(List<string> patterns, bool recursive, long minFileSize, long maxFileSize)
+        {
+            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            
+            ProgressDisplay.WriteInfo("正在展开文件模式...");
+            int patternCount = 0;
+            
+            foreach (var pattern in patterns)
+            {
+                patternCount++;
+                ProgressDisplay.WriteToLog(string.Format("处理模式 [{0}/{1}]: {2}", patternCount, patterns.Count, pattern));
+                
+                try
+                {
+                    // 处理特殊标记
+                    if (string.IsNullOrWhiteSpace(pattern))
+                    {
+                        continue;
+                    }
+                    
+                    // 检查是否是通配符模式
+                    bool hasWildcard = pattern.Contains('*') || pattern.Contains('?');
+                    
+                    // 如果模式是具体文件且存在，直接添加
+                    if (!hasWildcard && File.Exists(pattern))
+                    {
+                        var fullPath = Path.GetFullPath(pattern);
+                        files.Add(fullPath);
+                        ProgressDisplay.WriteToLog(string.Format("  添加文件: {0}", fullPath));
+                        continue;
+                    }
+                    
+                    // 如果模式是目录，则跳过（我们不处理目录本身，只处理目录下的文件）
+                    if (!hasWildcard && Directory.Exists(pattern))
+                    {
+                        // 目录模式：自动添加通配符 *
+                        string directory = pattern;
+                        if (!directory.EndsWith(Path.DirectorySeparatorChar) && !directory.EndsWith(Path.AltDirectorySeparatorChar))
+                        {
+                            directory += Path.DirectorySeparatorChar;
+                        }
+                        
+                        // 处理目录中的所有文件
+                        if (Directory.Exists(directory))
+                        {
+                            var dirFiles = Directory.GetFiles(directory, "*", searchOption);
+                            ProgressDisplay.WriteToLog(string.Format("  目录 {0} 中找到 {1} 个文件", directory, dirFiles.Length));
+                            foreach (var file in dirFiles)
+                            {
+                                files.Add(Path.GetFullPath(file));
+                            }
+                        }
+                        continue;
+                    }
+                    
+                    // 处理通配符模式
+                    string directoryPart;
+                    string filePattern;
+                    
+                    try
+                    {
+                        // 获取目录部分和文件模式部分
+                        directoryPart = Path.GetDirectoryName(pattern) ?? ".";
+                        filePattern = Path.GetFileName(pattern);
+                        
+                        // 如果目录部分为空或不存在，使用当前目录
+                        if (string.IsNullOrEmpty(directoryPart) || !Directory.Exists(directoryPart))
+                        {
+                            directoryPart = ".";
+                        }
+                        
+                        // 如果文件模式为空，使用通配符 *
+                        if (string.IsNullOrEmpty(filePattern))
+                        {
+                            filePattern = "*";
+                        }
+                        
+                        // 展开通配符
+                        var matchedFiles = Directory.GetFiles(directoryPart, filePattern, searchOption);
+                        ProgressDisplay.WriteToLog(string.Format("  通配符 {0} 匹配到 {1} 个文件", pattern, matchedFiles.Length));
+                        foreach (var file in matchedFiles)
+                        {
+                            files.Add(Path.GetFullPath(file));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ProgressDisplay.WriteWarning(string.Format("无法处理模式 '{0}': {1}", pattern, ex.Message));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ProgressDisplay.WriteWarning(string.Format("无法处理模式 '{0}': {1}", pattern, ex.Message));
+                }
+            }
+            
+            ProgressDisplay.WriteInfo(string.Format("文件模式展开完成，找到 {0} 个文件", files.Count));
+            
+            // 文件大小过滤（在文件收集之后进行）
+            var filteredFiles = files.Where(f => {
+                try
+                {
+                    var fileInfo = new FileInfo(f);
+                    if (!fileInfo.Exists) return false;
+                    
+                    var size = fileInfo.Length;
+                    bool sizeOk = size >= minFileSize && size <= maxFileSize;
+                    
+                    if (!sizeOk)
+                    {
+                        ProgressDisplay.WriteToLog(string.Format("文件 {0} 大小 {1} 不符合过滤条件 ({2} - {3})", 
+                            Path.GetFileName(f), ProgressDisplay.FormatSize(size), 
+                            minFileSize > 0 ? ProgressDisplay.FormatSize(minFileSize) : "无限制",
+                            maxFileSize < long.MaxValue ? ProgressDisplay.FormatSize(maxFileSize) : "无限制"));
+                    }
+                    
+                    return sizeOk;
+                }
+                catch
+                {
+                    ProgressDisplay.WriteWarning(string.Format("无法获取文件信息: {0}", f));
+                    return false;
+                }
+            }).ToList();
+            
+            ProgressDisplay.WriteInfo(string.Format("文件大小过滤完成，剩余 {0} 个文件", filteredFiles.Count));
+            
+            return filteredFiles.OrderBy(f => f).ToList();
+        }       
+        
+        public void Cancel()
+        {
+            cts.Cancel();
+            ProgressDisplay.WriteToLog("处理被取消");
+        }
+    }
+}
+
+
