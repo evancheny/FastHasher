@@ -1,4 +1,5 @@
-﻿// FileProcessor.cs - 专业文件处理器（包含图表功能）
+﻿
+// FileProcessor.cs - 专业文件处理器（包含图表功能）
 using System;
 using System.IO;
 using System.Text;
@@ -7,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.IO.Enumeration; // 新增：用于 EnumerationOptions
 
 namespace FastHasher
 {
@@ -797,11 +799,19 @@ namespace FastHasher
             return sb.ToString();
         }
         
+        // 修复后的文件模式展开方法，使用 EnumerationOptions 忽略无权限访问的子目录
         private static List<string> ExpandFilePatterns(List<string> patterns, bool recursive, long minFileSize, long maxFileSize)
         {
             var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
             
+            // 创建支持忽略访问错误的枚举选项
+            var enumerationOptions = new EnumerationOptions
+            {
+                RecurseSubdirectories = recursive,   // 是否递归
+                IgnoreInaccessible = true,            // 忽略无法访问的目录
+                AttributesToSkip = FileAttributes.Hidden | FileAttributes.System // 可按需调整
+            };
+
             ProgressDisplay.WriteInfo("正在展开文件模式...");
             int patternCount = 0;
             
@@ -840,15 +850,21 @@ namespace FastHasher
                             directory += Path.DirectorySeparatorChar;
                         }
                         
-                        // 处理目录中的所有文件
-                        if (Directory.Exists(directory))
+                        // 处理目录中的所有文件，使用 EnumerateFiles 并传入枚举选项
+                        try
                         {
-                            var dirFiles = Directory.GetFiles(directory, "*", searchOption);
-                            ProgressDisplay.WriteToLog(string.Format("  目录 {0} 中找到 {1} 个文件", directory, dirFiles.Length));
+                            var dirFiles = Directory.EnumerateFiles(directory, "*", enumerationOptions);
+                            int count = 0;
                             foreach (var file in dirFiles)
                             {
                                 files.Add(Path.GetFullPath(file));
+                                count++;
                             }
+                            ProgressDisplay.WriteToLog(string.Format("  目录 {0} 中找到 {1} 个文件", directory, count));
+                        }
+                        catch (Exception ex) when (ex is DirectoryNotFoundException || ex is IOException)
+                        {
+                            ProgressDisplay.WriteWarning(string.Format("无法枚举目录 '{0}': {1}", pattern, ex.Message));
                         }
                         continue;
                     }
@@ -875,15 +891,17 @@ namespace FastHasher
                             filePattern = "*";
                         }
                         
-                        // 展开通配符
-                        var matchedFiles = Directory.GetFiles(directoryPart, filePattern, searchOption);
-                        ProgressDisplay.WriteToLog(string.Format("  通配符 {0} 匹配到 {1} 个文件", pattern, matchedFiles.Length));
+                        // 展开通配符，使用 EnumerateFiles 并传入枚举选项
+                        var matchedFiles = Directory.EnumerateFiles(directoryPart, filePattern, enumerationOptions);
+                        int count = 0;
                         foreach (var file in matchedFiles)
                         {
                             files.Add(Path.GetFullPath(file));
+                            count++;
                         }
+                        ProgressDisplay.WriteToLog(string.Format("  通配符 {0} 匹配到 {1} 个文件", pattern, count));
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is DirectoryNotFoundException || ex is IOException)
                     {
                         ProgressDisplay.WriteWarning(string.Format("无法处理模式 '{0}': {1}", pattern, ex.Message));
                     }
@@ -926,7 +944,7 @@ namespace FastHasher
             ProgressDisplay.WriteInfo(string.Format("文件大小过滤完成，剩余 {0} 个文件", filteredFiles.Count));
             
             return filteredFiles.OrderBy(f => f).ToList();
-        }       
+        }
         
         public void Cancel()
         {
@@ -935,5 +953,4 @@ namespace FastHasher
         }
     }
 }
-
 

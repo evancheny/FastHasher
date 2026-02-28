@@ -25,10 +25,10 @@
     <EnablePreviewFeatures>false</EnablePreviewFeatures>
     <AssemblyName>FastHasher</AssemblyName>
     <RootNamespace>FastHasher</RootNamespace>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <InformationalVersion>1.0.0 - v16-1修复版</InformationalVersion>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1</FileVersion>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <InformationalVersion>1.0.1 - v17修复版</InformationalVersion>
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishReadyToRunShowWarnings>true</PublishReadyToRunShowWarnings>
     <InvariantGlobalization>true</InvariantGlobalization>

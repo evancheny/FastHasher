@@ -1,5 +1,5 @@
-﻿# build.ps1 - 最终修复版构建脚本
-# 修复已知问题：哈希一致性、JSON转义、中文乱码、参数过长、JSON序列化错误
+﻿# build.ps1 v17- 最终修复版构建脚本
+# 修复已知问题：哈希一致性、JSON转义、中文乱码、参数过长、JSON序列化错误、根目录文件读取错误
 # 新增特性：默认按CPU逻辑线程数设置并行线程数，支持--parallel/-p手动指定覆盖
 
 
@@ -36,7 +36,7 @@ $ProjectName = "FastHasher"
 $Runtime = "win-x64"
 $OutputDir = ".\dist"
 $SourceDir = ".\src"
-$Version = "1.0.0"  # 更新版本号
+$Version = "1.0.1"  # 更新版本号
 
 Write-Host "=========================================" -ForegroundColor White
 Write-Host "   快速哈希计算器 v$Version  " -ForegroundColor White
@@ -271,10 +271,10 @@ $csprojContent = @'
     <EnablePreviewFeatures>false</EnablePreviewFeatures>
     <AssemblyName>FastHasher</AssemblyName>
     <RootNamespace>FastHasher</RootNamespace>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <InformationalVersion>1.0.0 - v16-1修复版</InformationalVersion>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1</FileVersion>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <InformationalVersion>1.0.1 - v17修复版</InformationalVersion>
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishReadyToRunShowWarnings>true</PublishReadyToRunShowWarnings>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -1403,6 +1403,7 @@ namespace FastHasher
 
 
   "FileProcessor.cs" = @'
+
 // FileProcessor.cs - 专业文件处理器（包含图表功能）
 using System;
 using System.IO;
@@ -1412,6 +1413,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.IO.Enumeration; // 新增：用于 EnumerationOptions
 
 namespace FastHasher
 {
@@ -2202,11 +2204,19 @@ namespace FastHasher
             return sb.ToString();
         }
         
+        // 修复后的文件模式展开方法，使用 EnumerationOptions 忽略无权限访问的子目录
         private static List<string> ExpandFilePatterns(List<string> patterns, bool recursive, long minFileSize, long maxFileSize)
         {
             var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
             
+            // 创建支持忽略访问错误的枚举选项
+            var enumerationOptions = new EnumerationOptions
+            {
+                RecurseSubdirectories = recursive,   // 是否递归
+                IgnoreInaccessible = true,            // 忽略无法访问的目录
+                AttributesToSkip = FileAttributes.Hidden | FileAttributes.System // 可按需调整
+            };
+
             ProgressDisplay.WriteInfo("正在展开文件模式...");
             int patternCount = 0;
             
@@ -2245,15 +2255,21 @@ namespace FastHasher
                             directory += Path.DirectorySeparatorChar;
                         }
                         
-                        // 处理目录中的所有文件
-                        if (Directory.Exists(directory))
+                        // 处理目录中的所有文件，使用 EnumerateFiles 并传入枚举选项
+                        try
                         {
-                            var dirFiles = Directory.GetFiles(directory, "*", searchOption);
-                            ProgressDisplay.WriteToLog(string.Format("  目录 {0} 中找到 {1} 个文件", directory, dirFiles.Length));
+                            var dirFiles = Directory.EnumerateFiles(directory, "*", enumerationOptions);
+                            int count = 0;
                             foreach (var file in dirFiles)
                             {
                                 files.Add(Path.GetFullPath(file));
+                                count++;
                             }
+                            ProgressDisplay.WriteToLog(string.Format("  目录 {0} 中找到 {1} 个文件", directory, count));
+                        }
+                        catch (Exception ex) when (ex is DirectoryNotFoundException || ex is IOException)
+                        {
+                            ProgressDisplay.WriteWarning(string.Format("无法枚举目录 '{0}': {1}", pattern, ex.Message));
                         }
                         continue;
                     }
@@ -2280,15 +2296,17 @@ namespace FastHasher
                             filePattern = "*";
                         }
                         
-                        // 展开通配符
-                        var matchedFiles = Directory.GetFiles(directoryPart, filePattern, searchOption);
-                        ProgressDisplay.WriteToLog(string.Format("  通配符 {0} 匹配到 {1} 个文件", pattern, matchedFiles.Length));
+                        // 展开通配符，使用 EnumerateFiles 并传入枚举选项
+                        var matchedFiles = Directory.EnumerateFiles(directoryPart, filePattern, enumerationOptions);
+                        int count = 0;
                         foreach (var file in matchedFiles)
                         {
                             files.Add(Path.GetFullPath(file));
+                            count++;
                         }
+                        ProgressDisplay.WriteToLog(string.Format("  通配符 {0} 匹配到 {1} 个文件", pattern, count));
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is DirectoryNotFoundException || ex is IOException)
                     {
                         ProgressDisplay.WriteWarning(string.Format("无法处理模式 '{0}': {1}", pattern, ex.Message));
                     }
@@ -2331,7 +2349,7 @@ namespace FastHasher
             ProgressDisplay.WriteInfo(string.Format("文件大小过滤完成，剩余 {0} 个文件", filteredFiles.Count));
             
             return filteredFiles.OrderBy(f => f).ToList();
-        }       
+        }
         
         public void Cancel()
         {
@@ -2340,7 +2358,6 @@ namespace FastHasher
         }
     }
 }
-
 
 '@
 
@@ -4256,6 +4273,7 @@ if ($exePath) {
     Write-Host "  3. 中文乱码问题 ✓" -ForegroundColor Green
     Write-Host "  4. 参数过长问题 ✓" -ForegroundColor Green
     Write-Host "  5. JSON序列化错误 ✓" -ForegroundColor Green    
+    Write-Host "  6. 根目录读取错误 ✓" -ForegroundColor Green    
     Write-Host "新增CPU并行特性:" -ForegroundColor White
     Write-Host "  ✅ 默认按CPU逻辑线程数并行，自动适配" -ForegroundColor Green
     Write-Host "  ✅ --parallel/-p手动指定线程数，优先级最高" -ForegroundColor Green
