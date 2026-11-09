@@ -1,10 +1,5 @@
-﻿// Program.cs - 主程序入口
+﻿﻿// Program.cs - 主程序入口
 // 负责初始化运行环境、解析命令行、分发子命令、打印帮助与版本信息
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
-
 namespace FastHasher
 {
     /// <summary>
@@ -28,6 +23,10 @@ namespace FastHasher
             SetupConsole();
             RegisterCancelHandler();
 
+            // 语言必须最先确定（--lang > 配置文件 > 默认中文），
+            // 否则后续参数解析错误、帮助文本都会用错语言
+            L.Initialize(CliParser.PreScanLanguage(args));
+
             // 无参数：双击 exe 或直接运行都进入交互式向导；
             // 输入被重定向（脚本、管道）时退回帮助，避免等待用户输入
             if (args.Length == 0)
@@ -45,7 +44,7 @@ namespace FastHasher
 
             if (!parsed.Success)
             {
-                Console.Error.WriteLine("错误: " + parsed.Error);
+                Console.Error.WriteLine(L.T("错误: ") + parsed.Error);
                 return parsed.ExitCode;
             }
 
@@ -53,7 +52,7 @@ namespace FastHasher
 
             foreach (string warning in parsed.Warnings)
             {
-                Console.Error.WriteLine("提示: " + warning);
+                Console.Error.WriteLine(L.T("提示: ") + warning);
             }
 
             switch (options.Command)
@@ -102,7 +101,7 @@ namespace FastHasher
 
                 e.Cancel = true;
                 Console.Error.WriteLine();
-                Console.Error.WriteLine("正在取消当前任务，请稍候...");
+                Console.Error.WriteLine(L.T("正在取消当前任务，请稍候..."));
                 cancel();
             };
         }
@@ -151,11 +150,11 @@ namespace FastHasher
         /// </summary>
         internal static async Task<int> RunHashAsync(CliOptions options)
         {
-            ProgressDisplay.WriteStatistics("计算模式",
+            ProgressDisplay.WriteStatistics(L.T("计算模式"),
                 ("算法", string.Join(", ", options.Algorithms), ConsoleColor.Cyan),
-                ("输入", options.Inputs.Count == 1 ? options.Inputs[0] : string.Format("{0} 个模式", options.Inputs.Count), ConsoleColor.White),
+                ("输入", options.Inputs.Count == 1 ? options.Inputs[0] : string.Format(L.T("{0} 个模式"), options.Inputs.Count), ConsoleColor.White),
                 ("递归", options.Recursive ? "是" : "否", ConsoleColor.Gray),
-                ("线程", options.IsParallel ? string.Format("{0} (并行)", options.Threads) : "1 (顺序)", ConsoleColor.Green),
+                ("线程", options.IsParallel ? string.Format(L.T("{0} (并行)"), options.Threads) : "1 (顺序)", ConsoleColor.Green),
                 ("输出", options.OutputToStdout ? "stdout" : (options.OutputPath ?? "默认文件名"), ConsoleColor.Gray),
                 ("格式", options.Format.ToString().ToLowerInvariant(), ConsoleColor.Gray)
             );
@@ -179,10 +178,10 @@ namespace FastHasher
         /// </summary>
         internal static async Task<int> RunVerifyAsync(CliOptions options)
         {
-            ProgressDisplay.WriteStatistics("验证模式",
+            ProgressDisplay.WriteStatistics(L.T("验证模式"),
                 ("验证文件", options.VerifyJson ?? string.Empty, ConsoleColor.Cyan),
                 ("路径过滤", options.Inputs.Count == 0 ? "无" : string.Join("; ", options.Inputs), ConsoleColor.Gray),
-                ("线程", options.IsParallel ? string.Format("{0} (并行)", options.Threads) : "1 (顺序)", ConsoleColor.Green),
+                ("线程", options.IsParallel ? string.Format(L.T("{0} (并行)"), options.Threads) : "1 (顺序)", ConsoleColor.Green),
                 ("输出", options.OutputToStdout ? "stdout" : (options.OutputPath ?? "默认文件名"), ConsoleColor.Gray)
             );
 
@@ -196,7 +195,7 @@ namespace FastHasher
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("验证失败: " + ex.Message);
+                Console.Error.WriteLine(L.T("验证失败: ") + ex.Message);
                 return 2;
             }
             finally
@@ -212,66 +211,20 @@ namespace FastHasher
         {
             Console.WriteLine(string.Format("FastHasher v{0}", VersionInfo.GetVersion()));
             Console.WriteLine(VersionInfo.GetInformationalVersion());
-            Console.WriteLine(string.Format("CPU 逻辑线程数: {0}", Environment.ProcessorCount));
+            Console.WriteLine(string.Format(L.T("CPU 逻辑线程数: {0}"), Environment.ProcessorCount));
         }
 
         /// <summary>
-        /// 显示帮助信息
+        /// 显示帮助信息。
+        /// 帮助文本按整段维护（L.HelpHeader / L.HelpBody），不做逐行 T() 翻译：
+        /// 两种语言的选项列对齐方式不同，整段维护排版质量最好。
+        /// 新增命令行选项时必须同时更新 Localization.cs 的 ChineseHelp 与 EnglishHelp。
         /// </summary>
         internal static void ShowHelp()
         {
-            Console.WriteLine(string.Format("FastHasher v{0} - 文件哈希计算与验证工具", VersionInfo.GetVersion()));
+            Console.WriteLine(string.Format(L.HelpHeader, VersionInfo.GetVersion()));
             Console.WriteLine();
-            Console.WriteLine(@"用法:
-  FastHasher                    交互式向导模式（无参数即可进入）
-  FastHasher -i                 显式进入交互式向导
-  FastHasher [hash] <文件|目录|通配符>... [选项]
-  FastHasher verify <哈希.json> [路径过滤...] [选项]
-  FastHasher bench
-  FastHasher help | version
-
-选项:
-  -a, --algorithms <列表>   哈希算法，逗号分隔或 all
-                            可用: md5, sha1, sha256, sha512, blake3（默认 md5）
-  -r, --recursive           递归搜索子目录
-      --min-size <大小>     最小文件大小，例如 1KB、10MB、0.5GiB
-      --max-size <大小>     最大文件大小
-  -f, --file-list <文件>    从文件读取路径列表，每行一个；- 表示标准输入
-  @<响应文件>               从文件读取命令行参数，每行一个
-
-  -j, --threads <n|auto>    并行线程数，默认 auto（CPU 逻辑线程数）
-                            auto 或 1 = 顺序处理；上限为 CPU 逻辑线程数 x 2
-
-  -o, --output <文件|->     输出路径，- 表示标准输出
-                            默认生成带时间戳的文件
-      --format <格式>       输出格式: json（默认）、text、ndjson
-
-      --stats               显示统计信息与图表
-  -q, --quiet               只输出错误与警告
-      --verbose             输出详细日志
-      --no-color            禁用彩色输出
-      --progress <模式>     进度显示: auto（默认）、always、never
-      --log <文件>          指定日志文件路径
-      --no-log              不写日志文件
-
-  -i, --interactive         交互式向导模式
-  -h, --help                显示帮助
-  -v, --version             显示版本信息
-
-退出码:
-  0    全部成功
-  1    存在失败、缺失或哈希不匹配
-  2    参数错误
-  130  用户取消
-
-示例:
-  FastHasher *.txt -a md5,sha256 --recursive
-  FastHasher D:\data --min-size 1MB --stats -j 8
-  FastHasher verify hashes_20260101_120000.json
-  FastHasher verify hashes.json --format text -o report.txt
-  FastHasher verify hashes.json -q -o -
-  FastHasher --file-list files.txt -j auto
-");
+            Console.WriteLine(L.HelpBody);
         }
 
         /// <summary>
@@ -285,7 +238,7 @@ namespace FastHasher
             try
             {
                 Console.WriteLine();
-                Console.WriteLine("按任意键退出...");
+                Console.WriteLine(L.T("按任意键退出..."));
                 Console.ReadKey();
             }
             catch (InvalidOperationException)
@@ -299,9 +252,9 @@ namespace FastHasher
         /// </summary>
         internal static async Task RunBenchmarkAsync()
         {
-            Console.WriteLine("运行基准测试...");
+            Console.WriteLine(L.T("运行基准测试..."));
             Console.WriteLine("================");
-            Console.WriteLine(string.Format("CPU 逻辑线程数: {0}", Environment.ProcessorCount));
+            Console.WriteLine(string.Format(L.T("CPU 逻辑线程数: {0}"), Environment.ProcessorCount));
 
             const int testSize = 10 * 1024 * 1024; // 10MB
             var testData = new byte[testSize];
@@ -314,9 +267,9 @@ namespace FastHasher
             {
                 var algorithms = new[] { "MD5", "SHA1", "SHA256", "SHA512", "BLAKE3" };
 
-                Console.WriteLine(string.Format("测试文件: {0}MB", testSize / 1024 / 1024));
+                Console.WriteLine(string.Format(L.T("测试文件: {0}MB"), testSize / 1024 / 1024));
                 Console.WriteLine("---");
-                Console.WriteLine("顺序处理测试:");
+                Console.WriteLine(L.T("顺序处理测试:"));
 
                 long sequentialTotal = 0;
 
@@ -335,17 +288,17 @@ namespace FastHasher
                     }
                 }
 
-                Console.WriteLine(string.Format("  总计: {0}ms", sequentialTotal));
+                Console.WriteLine(string.Format(L.T("  总计: {0}ms"), sequentialTotal));
                 Console.WriteLine();
 
-                Console.WriteLine("并行处理测试（所有算法同时计算）:");
+                Console.WriteLine(L.T("并行处理测试（所有算法同时计算）:"));
                 var parallelStopwatch = System.Diagnostics.Stopwatch.StartNew();
                 var parallelResult = await FastHashCalculator.ComputeHashesAsync(testFile, algorithms);
                 parallelStopwatch.Stop();
 
                 if (parallelResult["success"] == "true")
                 {
-                    Console.WriteLine(string.Format("  总计: {0}ms", parallelStopwatch.ElapsedMilliseconds));
+                    Console.WriteLine(string.Format(L.T("  总计: {0}ms"), parallelStopwatch.ElapsedMilliseconds));
                     foreach (string algorithm in algorithms)
                     {
                         string hash = parallelResult[algorithm.ToLowerInvariant()];
@@ -356,13 +309,13 @@ namespace FastHasher
                     {
                         double speedup = (double)sequentialTotal / parallelStopwatch.ElapsedMilliseconds;
                         Console.WriteLine();
-                        Console.WriteLine(string.Format("加速比: {0:F2}x", speedup));
-                        Console.WriteLine(string.Format("并行效率: {0:F1}%", speedup / Environment.ProcessorCount * 100));
+                        Console.WriteLine(string.Format(L.T("加速比: {0:F2}x"), speedup));
+                        Console.WriteLine(string.Format(L.T("并行效率: {0:F1}%"), speedup / Environment.ProcessorCount * 100));
                     }
                 }
 
                 Console.WriteLine();
-                Console.WriteLine("基准测试完成");
+                Console.WriteLine(L.T("基准测试完成"));
             }
             finally
             {

@@ -1,14 +1,7 @@
-﻿// FastHashCalculator.cs - 高性能哈希计算器（优化版）
+﻿﻿﻿// FastHashCalculator.cs - 高性能哈希计算器（优化版）
 // 提供多种哈希算法的高性能计算功能，支持并行处理和流式处理
-using System;
-using System.IO;
 using System.Security.Cryptography;
-using System.Text;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -117,7 +110,7 @@ namespace FastHasher
                         break;
                     default:
                         return ValueTask.FromResult<(string, string, string)>(
-                            (algorithm, string.Empty, $"不支持的算法: {algorithm}"));
+                            (algorithm, string.Empty, string.Format(L.T("不支持的算法: {0}"), algorithm)));
                 }
 
                 return ValueTask.FromResult<(string, string, string)>(
@@ -129,11 +122,10 @@ namespace FastHasher
                     (algorithm, string.Empty, ex.Message));
             }
         }
-        
+
         public static async Task<Dictionary<string, string>> ComputeHashesAsync(
             string filePath,
             string[] algorithms,
-            bool computeSizeOnly = false,
             CancellationToken cancellationToken = default)
         {
             var results = new Dictionary<string, string>
@@ -148,7 +140,7 @@ namespace FastHasher
                 if (!File.Exists(filePath))
                 {
                     results["success"] = "false";
-                    results["error"] = "文件不存在";
+                    results["error"] = L.T("文件不存在");
                     return results;
                 }
 
@@ -157,7 +149,7 @@ namespace FastHasher
                 if (!FileTypeHelper.IsRegularFile(filePath))
                 {
                     results["success"] = "false";
-                    results["error"] = "非常规文件（FIFO/设备/套接字），已跳过";
+                    results["error"] = L.T("非常规文件（FIFO/设备/套接字），已跳过");
                     return results;
                 }
 
@@ -170,18 +162,12 @@ namespace FastHasher
                 results["created"] = fileInfo.CreationTime.ToString("yyyy-MM-dd HH:mm:ss");
                 results["modified"] = fileInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
 
-                if (computeSizeOnly)
-                {
-                    results["success"] = "true";
-                    return results;
-                }
-
                 var stopwatch = Stopwatch.StartNew();
 
                 // 在控制台显示开始处理文件的信息
                 string fileName = Path.GetFileName(filePath);
-                string shortName = fileName.Length > 30 ? fileName.Substring(0, 27) + "..." : fileName;
-                ProgressDisplay.WriteFileInfo(shortName, $"开始计算哈希 | 大小: {ProgressDisplay.FormatSize(fileSize)}");
+                string shortName = ProgressDisplay.Truncate(fileName, 30);
+                ProgressDisplay.WriteFileInfo(shortName, string.Format(L.T("开始计算哈希 | 大小: {0}"), ProgressDisplay.FormatSize(fileSize)));
 
                 // 根据文件大小选择处理策略
                 if (fileSize <= LargeFileThreshold)
@@ -193,7 +179,7 @@ namespace FastHasher
                 {
                     // 大文件：流式处理，使用动态缓冲区 - 优化版
                     int bufferSize = GetOptimalBufferSize(fileSize);
-                    ProgressDisplay.WriteFileInfo(shortName, $"使用动态缓冲区: {ProgressDisplay.FormatSize(bufferSize)}");
+                    ProgressDisplay.WriteFileInfo(shortName, string.Format(L.T("使用动态缓冲区: {0}"), ProgressDisplay.FormatSize(bufferSize)));
                     await ComputeLargeFileHashesOptimized(filePath, algorithms, results, bufferSize, cancellationToken);
                 }
 
@@ -207,7 +193,7 @@ namespace FastHasher
                 results["time_ms_double"] = stopwatch.ElapsedMilliseconds.ToString("F4");
 
                 // 显示处理完成信息
-                ProgressDisplay.WriteFileInfo(shortName, $"哈希计算完成 | 用时: {stopwatch.ElapsedMilliseconds:F2}ms");
+                ProgressDisplay.WriteFileInfo(shortName, string.Format(L.T("哈希计算完成 | 用时: {0:F2}ms"), stopwatch.ElapsedMilliseconds));
             }
             catch (Exception ex)
             {
@@ -216,12 +202,12 @@ namespace FastHasher
                 results["error_type"] = ex.GetType().Name;
 
                 // 记录错误
-                ProgressDisplay.WriteError($"文件 {Path.GetFileName(filePath)} 处理失败: {ex.Message}");
+                ProgressDisplay.WriteError(string.Format(L.T("文件 {0} 处理失败: {1}"), Path.GetFileName(filePath), ex.Message));
             }
 
             return results;
         }
-        
+
         // 优化版小文件哈希计算 - 使用内存池和并行计算
         private static async Task ComputeSmallFileHashesOptimized(
             string filePath,
@@ -230,7 +216,7 @@ namespace FastHasher
             CancellationToken cancellationToken)
         {
             string fileName = Path.GetFileName(filePath);
-            string shortName = fileName.Length > 30 ? fileName.Substring(0, 27) + "..." : fileName;
+            string shortName = ProgressDisplay.Truncate(fileName, 30);
 
             // 使用内存池分配内存，减少GC压力
             byte[] fileData;
@@ -257,7 +243,7 @@ namespace FastHasher
                 }
             }
 
-            ProgressDisplay.WriteFileInfo(shortName, $"文件读取完成 | 大小: {ProgressDisplay.FormatSize(bytesRead)}");
+            ProgressDisplay.WriteFileInfo(shortName, string.Format(L.T("文件读取完成 | 大小: {0}"), ProgressDisplay.FormatSize(bytesRead)));
 
             // 优化版哈希计算 - 使用并行和Span，只使用实际读取的字节数
             await ComputeHashesForDataOptimized(fileData.AsSpan(0, bytesRead).ToArray(), algorithms, results, shortName);
@@ -265,7 +251,7 @@ namespace FastHasher
             // 归还内存池
             ArrayPool<byte>.Shared.Return(fileData);
         }
-        
+
         // 优化版大文件哈希计算 - 使用内存池和异步优化
         private static async Task ComputeLargeFileHashesOptimized(
             string filePath,
@@ -275,11 +261,11 @@ namespace FastHasher
             CancellationToken cancellationToken)
         {
             string fileName = Path.GetFileName(filePath);
-            string shortName = fileName.Length > 30 ? fileName.Substring(0, 27) + "..." : fileName;
+            string shortName = ProgressDisplay.Truncate(fileName, 30);
             var fileInfo = new FileInfo(filePath);
             long totalBytes = fileInfo.Length;
 
-            ProgressDisplay.WriteFileInfo(shortName, $"流式处理大文件 | 大小: {ProgressDisplay.FormatSize(totalBytes)} | 缓冲区: {ProgressDisplay.FormatSize(bufferSize)}");
+            ProgressDisplay.WriteFileInfo(shortName, string.Format(L.T("流式处理大文件 | 大小: {0} | 缓冲区: {1}"), ProgressDisplay.FormatSize(totalBytes), ProgressDisplay.FormatSize(bufferSize)));
 
             // 初始化所有哈希算法
             var hashAlgorithms = new List<(string name, HashAlgorithm algo)>();
@@ -324,7 +310,7 @@ namespace FastHasher
                             string spinner = ProgressDisplay.GetSpinner();
                             string speed = ProgressDisplay.FormatSpeed(processedBytes, TimeSpan.FromMilliseconds(200));
 
-                            ProgressDisplay.UpdateProgressLine($"{spinner} {shortName} [{progressBar}] {percentage:P1} | {ProgressDisplay.FormatSize(processedBytes)}/{ProgressDisplay.FormatSize(totalBytes)} | {speed} | 缓冲区: {ProgressDisplay.FormatSize(bufferSize)}");
+                            ProgressDisplay.UpdateProgressLine(string.Format(L.T("{0} {1} [{2}] {3:P1} | {4}/{5} | {6} | 缓冲区: {7}"), spinner, shortName, progressBar, percentage, ProgressDisplay.FormatSize(processedBytes), ProgressDisplay.FormatSize(totalBytes), speed, ProgressDisplay.FormatSize(bufferSize)));
 
                             lastUpdateTime = now;
                         }
@@ -338,7 +324,7 @@ namespace FastHasher
                     {
                         hashAlgo.algo.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
                         results[hashAlgo.name.ToLower()] = BytesToHex(hashAlgo.algo.Hash ?? Array.Empty<byte>());
-                        ProgressDisplay.WriteFileInfo(shortName, $"算法 {hashAlgo.name} 计算完成");
+                        ProgressDisplay.WriteFileInfo(shortName, string.Format(L.T("算法 {0} 计算完成"), hashAlgo.name));
                     }
                 }
             }
@@ -354,9 +340,9 @@ namespace FastHasher
                 }
             }
 
-            ProgressDisplay.WriteProgressComplete($"大文件处理完成: {shortName}");
+            ProgressDisplay.WriteProgressComplete(string.Format(L.T("大文件处理完成: {0}"), shortName));
         }
-        
+
         // 优化版哈希计算 - 使用并行和Span优化
         private static async Task ComputeHashesForDataOptimized(
             byte[] data,
@@ -364,7 +350,7 @@ namespace FastHasher
             Dictionary<string, string> results,
             string fileName)
         {
-            ProgressDisplay.WriteFileInfo(fileName, $"开始计算 {algorithms.Length} 种哈希算法");
+            ProgressDisplay.WriteFileInfo(fileName, string.Format(L.T("开始计算 {0} 种哈希算法"), algorithms.Length));
 
             // 使用并行计算哈希 - 优化版
             var tasks = new List<ValueTask<(string algorithm, string hash, string error)>>();
@@ -387,19 +373,19 @@ namespace FastHasher
                 if (!string.IsNullOrEmpty(result.error))
                 {
                     results[$"error_{result.algorithm.ToLower()}"] = result.error;
-                    ProgressDisplay.WriteWarning($"文件 {fileName} | 算法 {result.algorithm} 计算失败: {result.error}");
+                    ProgressDisplay.WriteWarning(string.Format(L.T("文件 {0} | 算法 {1} 计算失败: {2}"), fileName, result.algorithm, result.error));
                 }
                 else
                 {
                     results[result.algorithm.ToLower()] = result.hash;
                     string hashPreview = result.hash.Length > 16 ? result.hash.Substring(0, 16) : result.hash;
-                    ProgressDisplay.WriteFileInfo(fileName, $"算法 {result.algorithm} 计算完成 | 哈希: {hashPreview}...");
+                    ProgressDisplay.WriteFileInfo(fileName, string.Format(L.T("算法 {0} 计算完成 | 哈希: {1}..."), result.algorithm, hashPreview));
                 }
             }
 
             ProgressDisplay.WriteFileInfo(fileName, "所有算法计算完成");
         }
-        
+
         private static HashAlgorithm CreateHashAlgorithm(string algorithm)
         {
             string algoUpper = algorithm.ToUpper().Replace("-", "");
@@ -417,12 +403,9 @@ namespace FastHasher
                 case "BLAKE3":
                     return new Blake3.Blake3HashAlgorithm();
                 default:
-                    throw new ArgumentException($"不支持的算法: {algorithm}");
+                    throw new ArgumentException(string.Format(L.T("不支持的算法: {0}"), algorithm));
             }
         }
     }
 }
-
-
-
 

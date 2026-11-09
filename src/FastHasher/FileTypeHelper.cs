@@ -73,14 +73,6 @@ namespace FastHasher
             }
         }
 
-        /// <summary>
-        /// 返回文件类型的中文描述，用于日志。
-        /// </summary>
-        public static string Describe(string path)
-        {
-            if (Directory.Exists(path)) return "目录";
-            return IsRegularFile(path) ? "普通文件" : "非常规文件（FIFO/设备/套接字）";
-        }
     }
 
     /// <summary>

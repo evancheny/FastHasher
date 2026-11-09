@@ -1,12 +1,7 @@
 // InteractiveShell.cs - 交互式向导模式
 // 通过菜单与问答逐项收集参数，最终仍复用 CliOptions + FileProcessor / HashVerifier 执行
 // 目的：双击 exe 或输入 FastHasher -i 时，无需记忆任何参数即可完成全部操作
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace FastHasher
 {
@@ -57,20 +52,24 @@ namespace FastHasher
                         break;
 
                     case "5":
+                        ToggleLanguage();
+                        break;
+
+                    case "6":
                     case "q":
                     case "quit":
                     case "exit":
-                        Console.WriteLine("再见。");
+                        Console.WriteLine(L.T("再见。"));
                         return 0;
 
                     default:
-                        WriteError("请输入 1-5 之间的数字，或输入 q 退出");
+                        WriteError(L.T("请输入 1-6 之间的数字，或输入 q 退出"));
                         break;
                 }
             }
 
             Console.WriteLine();
-            Console.WriteLine("再见。");
+            Console.WriteLine(L.T("再见。"));
             return 0;
         }
 
@@ -79,7 +78,7 @@ namespace FastHasher
         /// </summary>
         private static async Task RunHashWizardAsync()
         {
-            WriteStep("计算哈希");
+            WriteStep(L.T("计算哈希"));
 
             if (!TryReadInput("路径（文件/目录/通配符，多个用空格分隔）", ".", out string rawPaths))
             {
@@ -89,7 +88,7 @@ namespace FastHasher
             var inputs = SplitArguments(rawPaths);
             if (inputs.Count == 0)
             {
-                WriteError("路径不能为空");
+                WriteError(L.T("路径不能为空"));
                 return;
             }
 
@@ -113,14 +112,14 @@ namespace FastHasher
 
             if (!int.TryParse(rawThreads, out int threads) || threads <= 0)
             {
-                WriteError(string.Format("线程数必须是正整数: {0}", rawThreads));
+                WriteError(string.Format(L.T("线程数必须是正整数: {0}"), rawThreads));
                 return;
             }
 
             int threadLimit = Environment.ProcessorCount * CliParser.ThreadLimitFactor;
             if (threads > threadLimit)
             {
-                WriteInfo(string.Format("线程数 {0} 超过上限，已调整为 {1}", threads, threadLimit));
+                WriteInfo(string.Format(L.T("线程数 {0} 超过上限，已调整为 {1}"), threads, threadLimit));
                 threads = threadLimit;
             }
 
@@ -132,7 +131,7 @@ namespace FastHasher
             long minSize = 0;
             if (rawMin.Length > 0 && !CliParser.TryParseSize(rawMin, out minSize))
             {
-                WriteError(string.Format("无法解析文件大小: {0}（示例: 1KB、10MB、0.5GiB）", rawMin));
+                WriteError(string.Format(L.T("无法解析文件大小: {0}（示例: 1KB、10MB、0.5GiB）"), rawMin));
                 return;
             }
 
@@ -144,13 +143,13 @@ namespace FastHasher
             long maxSize = long.MaxValue;
             if (rawMax.Length > 0 && !CliParser.TryParseSize(rawMax, out maxSize))
             {
-                WriteError(string.Format("无法解析文件大小: {0}（示例: 100MB、2GiB）", rawMax));
+                WriteError(string.Format(L.T("无法解析文件大小: {0}（示例: 100MB、2GiB）"), rawMax));
                 return;
             }
 
             if (minSize > maxSize)
             {
-                WriteError("最小文件大小不能大于最大文件大小");
+                WriteError(L.T("最小文件大小不能大于最大文件大小"));
                 return;
             }
 
@@ -182,7 +181,7 @@ namespace FastHasher
 
             if (!Ask("开始计算", true))
             {
-                WriteInfo("已取消");
+                WriteInfo(L.T("已取消"));
                 return;
             }
 
@@ -196,7 +195,7 @@ namespace FastHasher
         /// </summary>
         private static async Task RunVerifyWizardAsync()
         {
-            WriteStep("验证哈希");
+            WriteStep(L.T("验证哈希"));
 
             string jsonPath = string.Empty;
 
@@ -226,7 +225,7 @@ namespace FastHasher
 
                 if (!File.Exists(input))
                 {
-                    WriteError(string.Format("文件不存在: {0}", input));
+                    WriteError(string.Format(L.T("文件不存在: {0}"), input));
                     continue;
                 }
 
@@ -263,7 +262,7 @@ namespace FastHasher
 
             if (!Ask("开始验证", true))
             {
-                WriteInfo("已取消");
+                WriteInfo(L.T("已取消"));
                 return;
             }
 
@@ -282,11 +281,11 @@ namespace FastHasher
 
             if (candidates.Count == 0)
             {
-                WriteError("当前目录下没有 JSON 文件，请直接输入完整路径");
+                WriteError(L.T("当前目录下没有 JSON 文件，请直接输入完整路径"));
                 return string.Empty;
             }
 
-            Console.WriteLine("当前目录下的 JSON 文件:");
+            Console.WriteLine(L.T("当前目录下的 JSON 文件:"));
             for (int i = 0; i < candidates.Count; i++)
             {
                 Console.WriteLine(string.Format("  {0}. {1}  ({2})",
@@ -310,7 +309,7 @@ namespace FastHasher
                 return Path.GetFullPath(pick);
             }
 
-            WriteError(string.Format("无效的选择: {0}", pick));
+            WriteError(string.Format(L.T("无效的选择: {0}"), pick));
             return string.Empty;
         }
 
@@ -337,7 +336,7 @@ namespace FastHasher
         /// </summary>
         private static OutputFormat AskFormat()
         {
-            Console.WriteLine("输出格式:  1) json（默认）  2) text  3) ndjson");
+            Console.WriteLine(L.T("输出格式:  1) json（默认）  2) text  3) ndjson"));
 
             if (!TryReadInput("选择格式", "1", out string choice))
             {
@@ -364,32 +363,47 @@ namespace FastHasher
         {
             Console.WriteLine();
             Console.WriteLine("==================================================");
-            Console.WriteLine(string.Format("  FastHasher v{0}  交互式模式", VersionInfo.GetVersion()));
-            Console.WriteLine("  输入 5 或 q 退出；Ctrl+C 可中止正在执行的任务");
+            Console.WriteLine(string.Format(L.T("  FastHasher v{0}  交互式模式"), VersionInfo.GetVersion()));
+            Console.WriteLine(L.T("  输入 6 或 q 退出；Ctrl+C 可中止正在执行的任务"));
             Console.WriteLine("==================================================");
         }
 
         /// <summary>
-        /// 打印主菜单
+        /// 打印主菜单。
+        /// 「切换语言」一项在两种语言下都保留中文提示，保证用户切到看不懂的语言后仍能找回入口。
         /// </summary>
         private static void PrintMenu()
         {
             Console.WriteLine();
-            Console.WriteLine("请选择操作:");
-            Console.WriteLine("  1. 计算哈希");
-            Console.WriteLine("  2. 验证哈希");
-            Console.WriteLine("  3. 基准测试");
-            Console.WriteLine("  4. 查看帮助");
-            Console.WriteLine("  5. 退出");
+            Console.WriteLine(L.T("请选择操作:"));
+            Console.WriteLine(L.T("  1. 计算哈希"));
+            Console.WriteLine(L.T("  2. 验证哈希"));
+            Console.WriteLine(L.T("  3. 基准测试"));
+            Console.WriteLine(L.T("  4. 查看帮助"));
+            Console.WriteLine(L.IsEnglish ? "  5. 切换语言 / Switch language" : "  5. 切换语言 / Language");
+            Console.WriteLine(L.T("  6. 退出"));
         }
 
         /// <summary>
-        /// 打印步骤标题
+        /// 切换中文/英文并写入 settings.json，下次启动保持所选语言。
+        /// 切换后立即生效（后续所有 T() 走新词典），无需重启。
         /// </summary>
-        private static void WriteStep(string title)
+        private static void ToggleLanguage()
+        {
+            L.ToggleAndPersist();
+            Console.WriteLine();
+            Console.WriteLine(L.IsEnglish
+                ? "Language switched to English. Saved to settings.json (choose 5 again to switch back)."
+                : "语言已切换为中文。已保存到 settings.json（再次选择 5 可切回英文）。");
+        }
+
+        /// <summary>
+        /// 打印步骤标题（标题在边界统一翻译）
+        /// </summary>
+        private static void WriteStep(string rawTitle)
         {
             Console.WriteLine();
-            Console.WriteLine(string.Format("--- {0} ---", title));
+            Console.WriteLine(string.Format("--- {0} ---", L.T(rawTitle)));
         }
 
         /// <summary>
@@ -398,7 +412,7 @@ namespace FastHasher
         private static void ShowPreview(string commandLine)
         {
             Console.WriteLine();
-            Console.WriteLine("等价命令行:");
+            Console.WriteLine(L.T("等价命令行:"));
             Console.WriteLine("  " + commandLine);
             Console.WriteLine();
         }
@@ -413,13 +427,13 @@ namespace FastHasher
             switch (exitCode)
             {
                 case 0:
-                    WriteInfo("执行完成：全部成功");
+                    WriteInfo(L.T("执行完成：全部成功"));
                     break;
                 case 130:
-                    WriteInfo("执行已取消");
+                    WriteInfo(L.T("执行已取消"));
                     break;
                 default:
-                    WriteInfo(string.Format("执行完成：存在问题项（退出码 {0}），详见输出报告", exitCode));
+                    WriteInfo(string.Format(L.T("执行完成：存在问题项（退出码 {0}），详见输出报告"), exitCode));
                     break;
             }
 
@@ -434,7 +448,7 @@ namespace FastHasher
             if (endOfInput) return;
 
             Console.WriteLine();
-            Console.Write("按回车返回主菜单...");
+            Console.Write(L.T("按回车返回主菜单..."));
             if (Console.ReadLine() == null)
             {
                 endOfInput = true;
@@ -444,7 +458,7 @@ namespace FastHasher
         /// <summary>
         /// 读取一行输入
         /// </summary>
-        /// <param name="prompt">提示文字</param>
+        /// <param name="prompt">提示文字（中文原文，在此统一翻译，调用点不必包 L.T）</param>
         /// <param name="defaultValue">回车时采用的默认值，null 表示无默认值</param>
         /// <param name="value">读取结果</param>
         /// <returns>返回 false 表示输入流结束</returns>
@@ -454,7 +468,7 @@ namespace FastHasher
 
             if (endOfInput) return false;
 
-            Console.Write(prompt);
+            Console.Write(L.T(prompt));
             if (!string.IsNullOrEmpty(defaultValue)) Console.Write(string.Format(" [{0}]", defaultValue));
             Console.Write(": ");
 
@@ -473,13 +487,13 @@ namespace FastHasher
         }
 
         /// <summary>
-        /// 询问是/否
+        /// 询问是/否（问题文字在此统一翻译；中英文模式都接受 y/yes/是）
         /// </summary>
         private static bool Ask(string question, bool defaultValue)
         {
             if (endOfInput) return false;
 
-            Console.Write(string.Format("{0} [{1}]: ", question, defaultValue ? "Y/n" : "y/N"));
+            Console.Write(string.Format("{0} [{1}]: ", L.T(question), defaultValue ? "Y/n" : "y/N"));
 
             string? line = Console.ReadLine();
             if (line == null)
@@ -617,7 +631,7 @@ namespace FastHasher
         private static void WriteError(string message)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("错误: " + message);
+            Console.WriteLine(L.T("错误: ") + message);
             Console.ResetColor();
         }
     }

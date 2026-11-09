@@ -1,11 +1,5 @@
 // ProgressDisplay.cs - 专业进度显示类（优化配色版）
 // 提供美观的命令行界面，包括进度条、状态显示、彩色输出等
-using System;
-using System.Text;
-using System.IO;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace FastHasher
 {
     /// <summary>
@@ -47,6 +41,11 @@ namespace FastHasher
         /// 用于多线程环境下的线程安全日志写入
         /// </summary>
         private static readonly object logLock = new object();
+
+        /// <summary>
+        /// 字节单位的 1024 进制阶梯（上限与旧实现一致，不引入 TB）
+        /// </summary>
+        private static readonly string[] SizeUnits = { "B", "KB", "MB", "GB" };
 
         /// <summary>
         /// 日志文件路径
@@ -97,17 +96,13 @@ namespace FastHasher
         private static readonly ConsoleColor ColorMuted = ConsoleColor.Gray;         // 弱强调 - 灰色
         private static readonly ConsoleColor ColorBorder = ConsoleColor.Gray;        // 边框 - 灰色
         
+        /// <summary>
+        /// 指定日志文件路径；空字符串表示不落盘。
+        /// 颜色开关由 <see cref="EnableColor"/> 单独设置，此处不得覆盖。
+        /// </summary>
         public static void InitializeLog(string path)
         {
-            logFilePath = path;
-            try
-            {
-                enableColor = true;
-            }
-            catch
-            {
-                enableColor = false;
-            }
+            logFilePath = path ?? string.Empty;
         }
         
         public static void WriteToLog(string message, bool toConsole = true)
@@ -145,9 +140,12 @@ namespace FastHasher
             }
         }
         
-        public static void WriteSection(string title)
+        // 标题在输出边界统一翻译（与 WriteStatistics 同一策略）
+        public static void WriteSection(string rawTitle)
         {
             if (IsQuiet) return;
+
+            string title = L.T(rawTitle);
 
             lock (consoleLock)
             {
@@ -189,9 +187,12 @@ namespace FastHasher
             }
         }
         
-        public static void WriteKeyValue(string key, string value, ConsoleColor valueColor = ConsoleColor.White)
+        // key（标签）在输出边界统一翻译；value 多为路径/数字等运行时数据，不做翻译
+        public static void WriteKeyValue(string rawKey, string value, ConsoleColor valueColor = ConsoleColor.White)
         {
             if (IsQuiet) return;
+
+            string key = L.T(rawKey);
 
             lock (consoleLock)
             {
@@ -247,46 +248,62 @@ namespace FastHasher
         
         public static string GetETA(TimeSpan elapsed, int processed, int total)
         {
-            if (processed <= 0 || elapsed.TotalSeconds <= 0.1) return "计算中...";
+            if (processed <= 0 || elapsed.TotalSeconds <= 0.1) return L.T("计算中...");
             
             double averageTime = elapsed.TotalSeconds / processed;
             int remaining = total - processed;
             double remainingSeconds = averageTime * remaining;
             
             if (remainingSeconds < 60)
-                return string.Format("{0:F0}秒", remainingSeconds);
+                return string.Format(L.T("{0:F0}秒"), remainingSeconds);
             else if (remainingSeconds < 3600)
-                return string.Format("{0:F1}分", remainingSeconds / 60);
+                return string.Format(L.T("{0:F1}分"), remainingSeconds / 60);
             else
-                return string.Format("{0:F1}时", remainingSeconds / 3600);
+                return string.Format(L.T("{0:F1}时"), remainingSeconds / 3600);
         }
         
         public static string FormatSpeed(long bytes, TimeSpan elapsed)
         {
-            if (elapsed.TotalSeconds <= 0.1) return "计算中...";
-            
-            double speed = bytes / elapsed.TotalSeconds;
-            
-            if (speed >= 1024 * 1024 * 1024)
-                return string.Format("{0:F2} GB/s", speed / (1024 * 1024 * 1024));
-            else if (speed >= 1024 * 1024)
-                return string.Format("{0:F2} MB/s", speed / (1024 * 1024));
-            else if (speed >= 1024)
-                return string.Format("{0:F2} KB/s", speed / 1024);
-            else
-                return string.Format("{0:F0} B/s", speed);
+            if (elapsed.TotalSeconds <= 0.1) return L.T("计算中...");
+            return FormatScaled(bytes / elapsed.TotalSeconds, "/s");
         }
-        
+
         public static string FormatSize(long bytes)
         {
-            if (bytes >= 1024 * 1024 * 1024)
-                return string.Format("{0:F2} GB", bytes / (1024.0 * 1024.0 * 1024.0));
-            else if (bytes >= 1024 * 1024)
-                return string.Format("{0:F2} MB", bytes / (1024.0 * 1024.0));
-            else if (bytes >= 1024)
-                return string.Format("{0:F2} KB", bytes / 1024.0);
-            else
-                return string.Format("{0} B", bytes);
+            return FormatScaled(bytes);
+        }
+
+        /// <summary>
+        /// 按 1024 进制缩放数值并附加单位，字节以下不保留小数。
+        /// </summary>
+        /// <param name="value">待格式化的数值</param>
+        /// <param name="suffix">单位后缀，如 "/s"</param>
+        private static string FormatScaled(double value, string suffix = "")
+        {
+            int unit = 0;
+            while (value >= 1024 && unit < SizeUnits.Length - 1)
+            {
+                value /= 1024;
+                unit++;
+            }
+
+            string format = unit == 0 ? "{0:F0} {1}{2}" : "{0:F2} {1}{2}";
+            return string.Format(format, value, SizeUnits[unit], suffix);
+        }
+
+        /// <summary>
+        /// 超长文本截断为「前 N-3 个字符 + ...」，用于进度行与表格列。
+        /// </summary>
+        /// <param name="text">原始文本</param>
+        /// <param name="maxWidth">最大显示宽度（含省略号）</param>
+        public static string Truncate(string text, int maxWidth)
+        {
+            if (string.IsNullOrEmpty(text) || maxWidth <= 3 || text.Length <= maxWidth)
+            {
+                return text;
+            }
+
+            return text.Substring(0, maxWidth - 3) + "...";
         }
         
         public static void UpdateProgressLine(string text)
@@ -326,7 +343,7 @@ namespace FastHasher
             }
         }
         
-        public static void ClearProgressLine()
+        private static void ClearProgressLine()
         {
             if (!ProgressEnabled) return;
 
@@ -357,7 +374,7 @@ namespace FastHasher
                 Console.Error.WriteLine("✅ " + message);
                 if (enableColor) Console.ResetColor();
                 
-                WriteToLog("完成: " + message, false);
+                WriteToLog(L.T("完成: ") + message, false);
             }
         }
         
@@ -369,7 +386,7 @@ namespace FastHasher
                 Console.Error.WriteLine("⚠️  " + message);
                 if (enableColor) Console.ResetColor();
                 
-                WriteToLog("警告: " + message, false);
+                WriteToLog(L.T("警告: ") + message, false);
             }
         }
         
@@ -381,7 +398,7 @@ namespace FastHasher
                 Console.Error.WriteLine("❌ " + message);
                 if (enableColor) Console.ResetColor();
                 
-                WriteToLog("错误: " + message, false);
+                WriteToLog(L.T("错误: ") + message, false);
             }
         }
         
@@ -395,7 +412,7 @@ namespace FastHasher
                 Console.Error.WriteLine("ℹ️  " + message);
                 if (enableColor) Console.ResetColor();
                 
-                WriteToLog("信息: " + message, false);
+                WriteToLog(L.T("信息: ") + message, false);
             }
         }
         
@@ -409,13 +426,16 @@ namespace FastHasher
                 Console.Error.WriteLine("✅ " + message);
                 if (enableColor) Console.ResetColor();
                 
-                WriteToLog("成功: " + message, false);
+                WriteToLog(L.T("成功: ") + message, false);
             }
         }
         
-        public static void WriteFileInfo(string fileName, string message)
+        // message 在输出边界统一翻译（调用点只传中文原文）
+        public static void WriteFileInfo(string fileName, string rawMessage)
         {
             if (IsQuiet) return;
+
+            string message = L.T(rawMessage);
 
             lock (consoleLock)
             {
@@ -428,63 +448,18 @@ namespace FastHasher
                 if (enableColor) Console.ResetColor();
                 Console.Error.WriteLine(message);
 
-                string logMessage = string.Format("文件 {0}: {1}", fileName, message);
+                string logMessage = string.Format(L.T("文件 {0}: {1}"), fileName, message);
                 WriteToLog(logMessage, false);
             }
         }
         
-        public static void WriteBanner(string title, string subtitle = "")
+        // 说明：WriteStatistics 是统计表的唯一输出出口，在这里统一做 L.T 翻译，
+        // 调用点只需传中文标签，不必各自包裹（值可能是格式化结果，T 对非 key 原样返回）
+        public static void WriteStatistics(string rawTitle, params (string key, string value, ConsoleColor color)[] items)
         {
             if (IsQuiet) return;
 
-            lock (consoleLock)
-            {
-                try
-                {
-                    int width = Math.Max(title.Length, subtitle.Length) + 6;
-                    Console.Error.WriteLine();
-                    if (enableColor) Console.ForegroundColor = ColorSection;
-                    Console.Error.WriteLine("╔" + new string('═', width));
-                    Console.Error.Write("║");
-                    Console.Error.Write(new string(' ', (width - title.Length) / 2));
-                    if (enableColor) Console.ForegroundColor = ColorInfo;
-                    Console.Error.Write(title);
-                    if (enableColor) Console.ForegroundColor = ColorSection;
-                    Console.Error.Write(new string(' ', width - title.Length - (width - title.Length) / 2));
-                    Console.Error.WriteLine("║");
-
-                    if (!string.IsNullOrEmpty(subtitle))
-                    {
-                        Console.Error.Write("║");
-                        Console.Error.Write(new string(' ', (width - subtitle.Length) / 2));
-                        if (enableColor) Console.ForegroundColor = ColorSecondary;
-                        Console.Error.Write(subtitle);
-                        if (enableColor) Console.ForegroundColor = ColorSection;
-                        Console.Error.Write(new string(' ', width - subtitle.Length - (width - subtitle.Length) / 2));
-                        Console.Error.WriteLine("║");
-                    }
-                    
-                    Console.Error.WriteLine("╚" + new string('═', width));
-                    if (enableColor) Console.ForegroundColor = ColorSection;
-                    Console.Error.WriteLine();
-                    if (enableColor) Console.ResetColor();
-                    Console.Error.WriteLine();
-                }
-                catch
-                {
-                    Console.Error.WriteLine("=== " + title + " ===");
-                    if (!string.IsNullOrEmpty(subtitle))
-                    {
-                        Console.Error.WriteLine(subtitle);
-                    }
-                    Console.Error.WriteLine();
-                }
-            }
-        }
-        
-        public static void WriteStatistics(string title, params (string key, string value, ConsoleColor color)[] items)
-        {
-            if (IsQuiet) return;
+            string title = L.T(rawTitle);
 
             lock (consoleLock)
             {
@@ -493,8 +468,8 @@ namespace FastHasher
                     int tableWidth = 60;
                     
                     var adjustedItems = items.Select(item => {
-                        string key = item.key.Length > 20 ? item.key.Substring(0, 17) + "..." : item.key;
-                        string value = item.value.Length > 25 ? item.value.Substring(0, 22) + "..." : item.value;
+                        string key = Truncate(L.T(item.key), 20);
+                        string value = Truncate(L.T(item.value), 25);
                         return (key, value, item.color);
                     }).ToArray();
                     
@@ -532,9 +507,12 @@ namespace FastHasher
             }
         }
         
-        public static void WriteHorizontalBarChart(string title, params (string label, double value, ConsoleColor color)[] items)
+        // 图表标题在输出边界统一翻译（与 WriteStatistics 同一策略）
+        public static void WriteHorizontalBarChart(string rawTitle, params (string label, double value, ConsoleColor color)[] items)
         {
             if (IsQuiet) return;
+
+            string title = L.T(rawTitle);
 
             lock (consoleLock)
             {
@@ -564,7 +542,7 @@ namespace FastHasher
                         Console.Error.Write("│ ");
                         
                         if (enableColor) Console.ForegroundColor = ColorMuted;
-                        string label = item.label.Length > 15 ? item.label.Substring(0, 12) + "..." : item.label;
+                        string label = Truncate(item.label, 15);
                         Console.Error.Write(label.PadRight(15));
                         Console.Error.Write(" ");
                         
@@ -595,9 +573,12 @@ namespace FastHasher
             }
         }
         
+        // 标题默认参数在输出边界统一翻译（默认参数保持中文原文作为词典 key）
         public static void WriteSizeDistributionChart(List<long> fileSizes, string title = "文件大小分布")
         {
             if (IsQuiet) return;
+
+            title = L.T(title);
 
             lock (consoleLock)
             {
@@ -654,15 +635,20 @@ namespace FastHasher
                 }
                 catch (Exception ex)
                 {
-                    WriteWarning(string.Format("无法绘制图表: {0}", ex.Message));
+                    WriteWarning(string.Format(L.T("无法绘制图表: {0}"), ex.Message));
                 }
             }
         }
         
-        public static void WriteScatterPlot(string title, List<(double x, double y, string label)> points, 
+        // 散点图标题与坐标轴标签在输出边界统一翻译（默认参数保持中文原文作为词典 key）
+        public static void WriteScatterPlot(string rawTitle, List<(double x, double y, string label)> points, 
                                           string xLabel = "文件大小(MB)", string yLabel = "处理时间(ms)")
         {
             if (IsQuiet) return;
+
+            string title = L.T(rawTitle);
+            xLabel = L.T(xLabel);
+            yLabel = L.T(yLabel);
 
             lock (consoleLock)
             {
@@ -751,10 +737,10 @@ namespace FastHasher
                 catch (Exception)
                 {
                     Console.Error.WriteLine(string.Format("=== {0} ===", title));
-                    Console.Error.WriteLine(string.Format("{0} 与 {1} 关系:", xLabel, yLabel));
+                    Console.Error.WriteLine(string.Format(L.T("{0} 与 {1} 关系:"), xLabel, yLabel));
                     foreach (var point in points.Take(10))
                     {
-                        Console.Error.WriteLine(string.Format("  大小: {0:F1}MB, 时间: {1:F1}ms", point.x, point.y));
+                        Console.Error.WriteLine(string.Format(L.T("  大小: {0:F1}MB, 时间: {1:F1}ms"), point.x, point.y));
                     }
                 }
             }

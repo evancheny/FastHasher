@@ -1,10 +1,7 @@
 // CliOptions.cs - 命令行参数模型与解析器
 // 统一管理 FastHasher 的全部命令行参数：解析、校验、迁移提示
 // 所有功能模块只依赖 CliOptions，不再各自解析字符串参数
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Text;
 
 namespace FastHasher
@@ -192,7 +189,7 @@ namespace FastHasher
         {
             "--algorithms", "--recursive", "--min-size", "--max-size", "--file-list",
             "--threads", "--output", "--format", "--stats", "--quiet", "--verbose",
-            "--no-color", "--progress", "--log", "--no-log", "--interactive", "--help", "--version"
+            "--no-color", "--progress", "--log", "--no-log", "--lang", "--interactive", "--help", "--version"
         };
 
         /// <summary>
@@ -217,6 +214,32 @@ namespace FastHasher
             ("P", 1024L * 1024 * 1024 * 1024 * 1024),
             ("B", 1L),
         };
+
+        /// <summary>
+        /// 在正式解析前预扫描 --lang。
+        /// 必须先于任何输出（包括参数错误提示）生效，否则 --lang 写错时，
+        /// 报错信息仍是旧语言，用户无法理解。详见 L.Initialize 的注释。
+        /// 只扫描原始参数，不展开 @响应文件——响应文件里的 --lang 不生效（避免提前读文件）。
+        /// 返回 "zh"/"en"；未指定返回 null；取值非法也返回 null（由正式解析的 --lang 分支报错）。
+        /// </summary>
+        public static string? PreScanLanguage(string[] rawArgs)
+        {
+            for (int i = 0; i < rawArgs.Length; i++)
+            {
+                string arg = rawArgs[i];
+                if (arg.Equals("--lang", StringComparison.OrdinalIgnoreCase) && i + 1 < rawArgs.Length)
+                {
+                    return L.NormalizeLanguage(rawArgs[i + 1]);
+                }
+
+                if (arg.StartsWith("--lang=", StringComparison.OrdinalIgnoreCase))
+                {
+                    return L.NormalizeLanguage(arg.Substring("--lang=".Length));
+                }
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// 解析命令行参数
@@ -317,7 +340,7 @@ namespace FastHasher
                     case "--algorithms":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个算法列表，例如: --algorithms md5,sha256");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个算法列表，例如: --algorithms md5,sha256"), name));
                         if (!TryParseAlgorithms(value, out var algorithms, out string? algoError))
                         {
                             return CliParseResult.Fail(algoError!);
@@ -334,10 +357,10 @@ namespace FastHasher
                     case "--min-size":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个文件大小，例如: --min-size 1MB");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个文件大小，例如: --min-size 1MB"), name));
                         if (!TryParseSize(value, out long bytes))
                         {
-                            return CliParseResult.Fail($"无法解析文件大小: {value}（示例: 1KB, 10MB, 0.5GiB）");
+                            return CliParseResult.Fail(string.Format(L.T("无法解析文件大小: {0}（示例: 1KB, 10MB, 0.5GiB）"), value));
                         }
                         options.MinSize = bytes;
                         break;
@@ -346,10 +369,10 @@ namespace FastHasher
                     case "--max-size":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个文件大小，例如: --max-size 100MB");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个文件大小，例如: --max-size 100MB"), name));
                         if (!TryParseSize(value, out long bytes))
                         {
-                            return CliParseResult.Fail($"无法解析文件大小: {value}（示例: 1KB, 10MB, 0.5GiB）");
+                            return CliParseResult.Fail(string.Format(L.T("无法解析文件大小: {0}（示例: 1KB, 10MB, 0.5GiB）"), value));
                         }
                         options.MaxSize = bytes;
                         break;
@@ -359,7 +382,7 @@ namespace FastHasher
                     case "--file-list":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个文件路径，使用 - 表示从标准输入读取");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个文件路径，使用 - 表示从标准输入读取"), name));
                         if (!TryLoadFileList(value, options, out string? listError))
                         {
                             return CliParseResult.Fail(listError!);
@@ -371,7 +394,7 @@ namespace FastHasher
                     case "--threads":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个线程数，例如: --threads 8、--threads auto、--threads 1");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个线程数，例如: --threads 8、--threads auto、--threads 1"), name));
                         if (!TryParseThreads(value, out int threads, out string? threadError, out string? threadWarning))
                         {
                             return CliParseResult.Fail(threadError!);
@@ -385,7 +408,7 @@ namespace FastHasher
                     case "--output":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个输出路径，使用 - 表示输出到标准输出");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个输出路径，使用 - 表示输出到标准输出"), name));
                         options.OutputPath = value;
                         break;
                     }
@@ -393,13 +416,13 @@ namespace FastHasher
                     case "--format":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个格式: json、text 或 ndjson");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个格式: json、text 或 ndjson"), name));
                         switch (value.ToLowerInvariant())
                         {
                             case "json": options.Format = OutputFormat.Json; break;
                             case "text": options.Format = OutputFormat.Text; break;
                             case "ndjson": options.Format = OutputFormat.Ndjson; break;
-                            default: return CliParseResult.Fail($"不支持的输出格式: {value}（可用: json, text, ndjson）");
+                            default: return CliParseResult.Fail(string.Format(L.T("不支持的输出格式: {0}（可用: json, text, ndjson）"), value));
                         }
                         break;
                     }
@@ -424,13 +447,13 @@ namespace FastHasher
                     case "--progress":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个值: auto、always 或 never");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个值: auto、always 或 never"), name));
                         switch (value.ToLowerInvariant())
                         {
                             case "auto": options.Progress = ProgressMode.Auto; break;
                             case "always": options.Progress = ProgressMode.Always; break;
                             case "never": options.Progress = ProgressMode.Never; break;
-                            default: return CliParseResult.Fail($"不支持的值: {value}（可用: auto, always, never）");
+                            default: return CliParseResult.Fail(string.Format(L.T("不支持的值: {0}（可用: auto, always, never）"), value));
                         }
                         break;
                     }
@@ -438,7 +461,7 @@ namespace FastHasher
                     case "--log":
                     {
                         string? value = ReadValue();
-                        if (value == null) return CliParseResult.Fail($"{name} 需要一个日志文件路径");
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个日志文件路径"), name));
                         options.LogFile = value;
                         options.NoLog = false;
                         break;
@@ -449,12 +472,25 @@ namespace FastHasher
                         options.LogFile = null;
                         break;
 
+                    case "--lang":
+                    {
+                        // 语言在 Main 里已通过 PreScanLanguage 提前生效，
+                        // 这里只负责校验取值合法性，写错时给出明确报错而不是静默忽略
+                        string? value = ReadValue();
+                        if (value == null) return CliParseResult.Fail(string.Format(L.T("{0} 需要一个语言: zh 或 en"), name));
+                        if (L.NormalizeLanguage(value) == null)
+                        {
+                            return CliParseResult.Fail(string.Format(L.T("不支持的语言: {0}（可用: zh, en）"), value));
+                        }
+                        break;
+                    }
+
                     default:
                     {
-                        string message = $"未知参数: {name}";
+                        string message = string.Format(L.T("未知参数: {0}"), name);
                         string? suggestion = SuggestOption(lowerName);
-                        if (suggestion != null) message += $"，是否想用: {suggestion}？";
-                        message += "\n使用 FastHasher -h 查看全部参数";
+                        if (suggestion != null) message += string.Format(L.T("，是否想用: {0}？"), suggestion);
+                        message += "\n" + L.T("使用 FastHasher -h 查看全部参数");
                         return CliParseResult.Fail(message);
                     }
                 }
@@ -463,14 +499,14 @@ namespace FastHasher
             // 统一的语义校验
             if (options.MinSize > options.MaxSize)
             {
-                return CliParseResult.Fail($"--min-size ({options.MinSize} 字节) 不能大于 --max-size ({options.MaxSize} 字节)");
+                return CliParseResult.Fail(string.Format(L.T("--min-size ({0} 字节) 不能大于 --max-size ({1} 字节)"), options.MinSize, options.MaxSize));
             }
 
             if (command == CliCommand.Verify)
             {
                 if (options.Inputs.Count == 0)
                 {
-                    return CliParseResult.Fail("verify 需要指定要验证的 JSON 文件\n用法: FastHasher verify <hash.json> [路径过滤...]");
+                    return CliParseResult.Fail(L.T("verify 需要指定要验证的 JSON 文件\n用法: FastHasher verify <hash.json> [路径过滤...]"));
                 }
 
                 options.VerifyJson = options.Inputs[0];
@@ -478,12 +514,12 @@ namespace FastHasher
 
                 if (!File.Exists(options.VerifyJson))
                 {
-                    return CliParseResult.Fail($"验证文件不存在: {options.VerifyJson}");
+                    return CliParseResult.Fail(string.Format(L.T("验证文件不存在: {0}"), options.VerifyJson));
                 }
             }
             else if (command == CliCommand.Hash && options.Inputs.Count == 0)
             {
-                return CliParseResult.Fail("缺少输入路径\n用法: FastHasher [hash] <文件|目录|通配符>... [选项]");
+                return CliParseResult.Fail(L.T("缺少输入路径\n用法: FastHasher [hash] <文件|目录|通配符>... [选项]"));
             }
 
             options.Command = command;
@@ -505,7 +541,7 @@ namespace FastHasher
                     string path = arg.Substring(1);
                     if (!File.Exists(path))
                     {
-                        error = $"响应文件不存在: {path}";
+                        error = string.Format(L.T("响应文件不存在: {0}"), path);
                         return false;
                     }
 
@@ -520,7 +556,7 @@ namespace FastHasher
                     }
                     catch (Exception ex)
                     {
-                        error = $"读取响应文件失败 {path}: {ex.Message}";
+                        error = string.Format(L.T("读取响应文件失败 {0}: {1}"), path, ex.Message);
                         return false;
                     }
                 }
@@ -554,7 +590,7 @@ namespace FastHasher
 
                 if (!File.Exists(path))
                 {
-                    error = $"文件列表不存在: {path}";
+                    error = string.Format(L.T("文件列表不存在: {0}"), path);
                     return false;
                 }
 
@@ -568,7 +604,7 @@ namespace FastHasher
             }
             catch (Exception ex)
             {
-                error = $"读取文件列表失败 {path}: {ex.Message}";
+                error = string.Format(L.T("读取文件列表失败 {0}: {1}"), path, ex.Message);
                 return false;
             }
         }
@@ -597,7 +633,7 @@ namespace FastHasher
 
                 if (Array.IndexOf(SupportedAlgorithms, normalized) < 0)
                 {
-                    error = $"不支持的算法: {part}（可用: {string.Join(", ", SupportedAlgorithms)} 或 all）";
+                    error = string.Format(L.T("不支持的算法: {0}（可用: {1} 或 all）"), part, string.Join(", ", SupportedAlgorithms));
                     return false;
                 }
 
@@ -606,7 +642,7 @@ namespace FastHasher
 
             if (algorithms.Count == 0)
             {
-                error = "算法列表不能为空";
+                error = L.T("算法列表不能为空");
                 return false;
             }
 
@@ -670,14 +706,14 @@ namespace FastHasher
 
             if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) || value <= 0)
             {
-                error = $"线程数必须是正整数或 auto: {raw}";
+                error = string.Format(L.T("线程数必须是正整数或 auto: {0}"), raw);
                 return false;
             }
 
             int upper = Environment.ProcessorCount * ThreadLimitFactor;
             if (value > upper)
             {
-                warning = $"线程数 {value} 超过上限，已调整为 {upper}（CPU 逻辑线程数 × {ThreadLimitFactor}）";
+                warning = string.Format(L.T("线程数 {0} 超过上限，已调整为 {1}（CPU 逻辑线程数 × {2}）"), value, upper, ThreadLimitFactor);
                 threads = upper;
                 return true;
             }
@@ -705,10 +741,10 @@ namespace FastHasher
         {
             if (string.IsNullOrEmpty(replacement))
             {
-                return $"参数 {name} 已移除（该参数从未生效），请直接删除。\n使用 FastHasher -h 查看全部参数";
+                return string.Format(L.T("参数 {0} 已移除（该参数从未生效），请直接删除。\n使用 FastHasher -h 查看全部参数"), name);
             }
 
-            return $"参数 {name} 已废弃，请改用: {replacement}\n使用 FastHasher -h 查看全部参数";
+            return string.Format(L.T("参数 {0} 已废弃，请改用: {1}\n使用 FastHasher -h 查看全部参数"), name, replacement);
         }
 
         /// <summary>

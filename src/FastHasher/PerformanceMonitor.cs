@@ -1,8 +1,6 @@
-﻿// PerformanceMonitor.cs - 性能监控器
+﻿﻿// PerformanceMonitor.cs - 性能监控器
 // 提供系统性能监控功能，包括内存使用情况和线程池状态
-using System;
 using System.Diagnostics;
-using System.Threading;
 
 namespace FastHasher
 {
@@ -25,7 +23,7 @@ namespace FastHasher
         public static string GetMemoryInfo()
         {
             var process = Process.GetCurrentProcess();
-            return string.Format("内存: {0}MB / {1}MB",
+            return string.Format(L.T("内存: {0}MB / {1}MB"),
                 process.WorkingSet64 / 1024 / 1024,  // 当前进程使用的工作集内存
                 totalMemory / 1024 / 1024);          // 系统总可用内存
         }
@@ -41,7 +39,7 @@ namespace FastHasher
             // 获取线程池的最大线程数
             ThreadPool.GetMaxThreads(out int maxWorker, out int maxIo);
 
-            return string.Format("线程池: {0}/{1} (工作), {2}/{3} (IO) | 逻辑线程数: {4}",
+            return string.Format(L.T("线程池: {0}/{1} (工作), {2}/{3} (IO) | 逻辑线程数: {4}"),
                 worker, maxWorker,          // 工作线程：可用/最大
                 io, maxIo,                  // IO线程：可用/最大
                 Environment.ProcessorCount); // 系统逻辑处理器数量
