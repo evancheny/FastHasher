@@ -22,10 +22,10 @@
     <EnablePreviewFeatures>false</EnablePreviewFeatures>
     <AssemblyName>FastHasher</AssemblyName>
     <RootNamespace>FastHasher</RootNamespace>
-    <Version>2.2.0</Version>
-    <FileVersion>2.2.0</FileVersion>
-    <AssemblyVersion>2.2.0.0</AssemblyVersion>
-    <InformationalVersion>2.2.0 - 新增 Linux x64 支持</InformationalVersion>
+    <Version>2.2.1</Version>
+    <FileVersion>2.2.1</FileVersion>
+    <AssemblyVersion>2.2.1.0</AssemblyVersion>
+    <InformationalVersion>2.2.1 - 修复非常规文件阻塞与路径可移植性</InformationalVersion>
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishReadyToRunShowWarnings>false</PublishReadyToRunShowWarnings>
     <InvariantGlobalization>true</InvariantGlobalization>

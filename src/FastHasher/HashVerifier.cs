@@ -80,12 +80,16 @@ namespace FastHasher
         private readonly string? logFilePath;
         private readonly CancellationTokenSource cts = new CancellationTokenSource();
         private int failedCount = 0;
+        private int totalTargets = 0;
         private bool canceled = false;
 
         /// <summary>
-        /// 进程退出码：0 全部通过，1 存在失败/缺失/错误，130 用户取消
+        /// 进程退出码：0 全部通过，1 存在失败/缺失/错误或没有可验证记录，130 用户取消
         /// </summary>
-        public int ExitCode => canceled ? 130 : (failedCount > 0 ? 1 : 0);
+        public int ExitCode => canceled ? 130
+            : failedCount > 0 ? 1
+            : totalTargets == 0 ? 1
+            : 0;
 
         public HashVerifier(CliOptions options)
         {
@@ -196,6 +200,7 @@ namespace FastHasher
             ProgressDisplay.WriteToLog(string.Format("验证开始时间: {0}", startTime.ToString("yyyy-MM-dd HH:mm:ss")));
 
             // 重新计算所有文件的哈希
+            totalTargets = storedFiles.Count;
             var recalculationResults = await RecalculateHashesByMetadata(metadata, filesToVerify);
 
             // 记录验证结束时间
@@ -288,12 +293,57 @@ namespace FastHasher
             }).ToList();
         }
         
+        /// <summary>
+        /// 解析 JSON 中记录的文件路径。
+        /// 记录的是相对路径时，若与当前工作目录不匹配（报告与文件一起搬到别处），
+        /// 依次尝试：相对当前目录 → 相对 JSON 所在目录 → 按文件名在 JSON 目录下查找。
+        /// </summary>
+        private string? ResolveExistingPath(string? recordedPath, string fileName)
+        {
+            if (string.IsNullOrEmpty(recordedPath)) return recordedPath;
+
+            try
+            {
+                if (File.Exists(recordedPath)) return recordedPath;
+
+                string absolute = Path.GetFullPath(recordedPath);
+                if (File.Exists(absolute)) return absolute;
+
+                string jsonDir = Path.GetDirectoryName(Path.GetFullPath(jsonFilePath)) ?? ".";
+                string nearJson = Path.Combine(jsonDir, recordedPath);
+                if (File.Exists(nearJson)) return nearJson;
+
+                // 录制的是相对路径时，报告搬移后前缀不再匹配：
+                // 从最长尾部片段开始，逐个尝试拼接在 JSON 目录下
+                string normalized = recordedPath
+                    .Replace('\\', Path.DirectorySeparatorChar)
+                    .Replace('/', Path.DirectorySeparatorChar);
+
+                if (!Path.IsPathRooted(normalized))
+                {
+                    string[] parts = normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 1; i < parts.Length; i++)
+                    {
+                        string candidate = Path.Combine(jsonDir, Path.Combine(parts[i..]));
+                        if (File.Exists(candidate)) return candidate;
+                    }
+                }
+            }
+            catch
+            {
+                // 非法路径等异常保持原值，交由后续流程报 missing
+            }
+
+            return recordedPath;
+        }
+
          private async Task<List<VerificationResult>> VerifyFilesAsync(List<Dictionary<string, string>> filesToVerify)
         {
             // 使用并发安全的集合
             var results = new ConcurrentBag<VerificationResult>();
             int processed = 0;
             int total = filesToVerify.Count;
+            totalTargets = total;
             var startTime = DateTime.UtcNow;
             var lastUpdateTime = DateTime.UtcNow;
             var updateLock = new object();
@@ -332,6 +382,9 @@ namespace FastHasher
                                         fileRecord.ContainsKey("full_path") ? fileRecord["full_path"] : null;
 
                         string fileName = string.IsNullOrEmpty(filePath) ? "未知文件" : Path.GetFileName(filePath);
+
+                        // JSON 中记录的是相对路径，可能因报告被搬移而与当前目录不一致，做兜底解析
+                        filePath = ResolveExistingPath(filePath, fileName);
 
                         // 使用 SemaphoreSlim 限制文件读取的并发度
                         await fileAccessSemaphore.WaitAsync(cancellationToken);
@@ -990,6 +1043,9 @@ namespace FastHasher
 
                         string fileName = string.IsNullOrEmpty(filePath) ? "未知文件" : Path.GetFileName(filePath);
 
+                        // 记录的是相对路径，报告被搬移时按 JSON 所在目录兜底解析
+                        filePath = ResolveExistingPath(filePath, fileName);
+
                         await fileAccessSemaphore.WaitAsync(cancellationToken);
                         try
                         {
@@ -1104,14 +1160,32 @@ namespace FastHasher
         private List<VerificationResult> CompareJsonResults(List<Dictionary<string, string>> stored, List<Dictionary<string, string>> recalculated)
         {
             var results = new List<VerificationResult>();
-            var storedDict = stored.ToDictionary(f => f.ContainsKey("file") ? f["file"] : f["full_path"]);
-            var recalculatedDict = recalculated.ToDictionary(f => f.ContainsKey("file") ? f["file"] : f["full_path"]);
+
+            // 以「解析后的绝对路径」为键：报告与文件一起搬移后相对路径的基准目录会变，
+            // 直接比对原始字符串会把所有文件都判成缺失
+            string KeyOf(Dictionary<string, string> record)
+            {
+                string raw = record.ContainsKey("file") ? record["file"]
+                    : record.ContainsKey("full_path") ? record["full_path"] : "";
+                if (string.IsNullOrEmpty(raw)) return "";
+
+                string name = record.ContainsKey("filename") ? record["filename"] : Path.GetFileName(raw);
+                string? resolved = ResolveExistingPath(raw, name);
+                try { return Path.GetFullPath(resolved ?? raw); } catch { return raw; }
+            }
+
+            var storedDict = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+            foreach (var record in stored) storedDict[KeyOf(record)] = record;
+
+            var recalculatedDict = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+            foreach (var record in recalculated) recalculatedDict[KeyOf(record)] = record;
 
             // 检查所有存储的文件
             foreach (var storedFile in stored)
             {
                 string filePath = storedFile.ContainsKey("file") ? storedFile["file"] : storedFile["full_path"];
                 string fileName = storedFile.ContainsKey("filename") ? storedFile["filename"] : Path.GetFileName(filePath);
+                string recordKey = KeyOf(storedFile);
 
                 var result = new VerificationResult
                 {
@@ -1122,7 +1196,7 @@ namespace FastHasher
                 };
 
                 // 检查文件是否存在
-                if (!recalculatedDict.ContainsKey(filePath))
+                if (!recalculatedDict.ContainsKey(recordKey))
                 {
                     result.Status = "missing";
                     result.Error = "文件不存在";
@@ -1130,7 +1204,7 @@ namespace FastHasher
                     continue;
                 }
 
-                var recalculatedFile = recalculatedDict[filePath];
+                var recalculatedFile = recalculatedDict[recordKey];
 
                 // 检查计算是否成功
                 if (recalculatedFile.ContainsKey("status") && recalculatedFile["status"] != "success")
@@ -1187,9 +1261,7 @@ namespace FastHasher
             // 检查是否有新文件（只在重新计算中存在）
             foreach (var recalculatedFile in recalculated)
             {
-                string filePath = recalculatedFile.ContainsKey("file") ? recalculatedFile["file"] : recalculatedFile["full_path"];
-                
-                if (!storedDict.ContainsKey(filePath))
+                if (!storedDict.ContainsKey(KeyOf(recalculatedFile)))
                 {
                     // 这个文件在存储列表中不存在，跳过
                     continue;

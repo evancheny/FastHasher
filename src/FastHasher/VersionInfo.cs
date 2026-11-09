@@ -20,22 +20,22 @@ namespace FastHasher
         /// <summary>
         /// 当前修订号 (Patch)
         /// </summary>
-        public const int Patch = 0;
+        public const int Patch = 1;
 
         /// <summary>
         /// 完整版本号字符串 (格式: Major.Minor.Patch)
         /// </summary>
-        public const string Version = "2.2.0";
+        public const string Version = "2.2.1";
 
         /// <summary>
         /// 程序集版本号字符串 (格式: Major.Minor.Patch.0)
         /// </summary>
-        public const string AssemblyVersion = "2.2.0.0";
+        public const string AssemblyVersion = "2.2.1.0";
 
         /// <summary>
         /// 版本描述信息
         /// </summary>
-        public const string InformationalVersion = "2.2.0 - 新增 Linux x64 支持";
+        public const string InformationalVersion = "2.2.1 - 修复非常规文件阻塞与路径可移植性";
 
         /// <summary>
         /// 获取完整版本号字符串

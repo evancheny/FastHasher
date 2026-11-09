@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 8" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20x64-blue?style=flat-square" alt="Windows | Linux x64" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square" alt="Apache-2.0" />
-  <img src="https://img.shields.io/badge/version-2.2.0-orange?style=flat-square" alt="v2.2.0" />
+  <img src="https://img.shields.io/badge/version-2.2.1-orange?style=flat-square" alt="v2.2.1" />
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
 ### 🔍 可靠
 - **输出与提示分流**：stdout 只写结果，进度条、提示、日志一律走 stderr，可直接管道给其他程序。
 - **验证模式**：`verify` 子命令自动识别 JSON 中的算法，逐文件重算比对，区分成功/失败/缺失/错误四态。
-- **退出码可用**：`0` 通过 / `1` 有问题项 / `2` 参数错误 / `130` 用户取消，便于 CI 判断。
+- **退出码可用**：`0` 通过 / `1` 有问题项或无匹配文件 / `2` 参数错误 / `130` 用户取消，便于 CI 判断。
 - **UTF-8 全链路**：中文文件名、路径、内容不乱码，JSON 输出无 BOM、转义正确。
 - **完整元数据**：算法、并发、过滤条件、耗时、体积等配置完整写入 JSON，验证时可还原原始环境。
 
@@ -46,8 +46,8 @@
 
 | 平台 | 产物 | 体积 |
 |---|---|---|
-| Windows x64 | `FastHasher-v2.2.0.exe` | 约 19.3MB |
-| Linux x64 | `FastHasher-v2.2.0`（无扩展名） | 约 20.1MB |
+| Windows x64 | `FastHasher-v2.2.1.exe` | 约 19.3MB |
+| Linux x64 | `FastHasher-v2.2.1`（无扩展名） | 约 20.1MB |
 
 - GitHub：[github.com/evancheny/FastHasher/releases](https://github.com/evancheny/FastHasher/releases)
 - Gitee：[gitee.com/evancheny/fast-hasher/releases](https://gitee.com/evancheny/fast-hasher/releases)
@@ -98,8 +98,8 @@ chmod +x build.sh
 
 | 目标 | 文件名 | 体积 |
 |---|---|---|
-| Windows x64 | `dist/FastHasher-v<版本>.exe` | 约 19.3MB（v2.2.0 实测） |
-| Linux x64 | `dist/FastHasher-v<版本>` | 约 20.1MB（v2.2.0 实测） |
+| Windows x64 | `dist/FastHasher-v<版本>.exe` | 约 19.3MB（v2.2.1 实测） |
+| Linux x64 | `dist/FastHasher-v<版本>` | 约 20.1MB（v2.2.1 实测） |
 
 | 模式 | 差异 |
 |---|---|
@@ -113,11 +113,11 @@ chmod +x build.sh
 
 ```bash
 # 赋予可执行位（zip 解压会丢失，tar.gz 会保留）
-chmod +x FastHasher-v2.2.0
+chmod +x FastHasher-v2.2.1
 
-./FastHasher-v2.2.0 --version
-./FastHasher-v2.2.0 /data -a blake3 -j 8 -o result.json
-./FastHasher-v2.2.0 /data -a all -o - --format ndjson -q --no-log > out.ndjson
+./FastHasher-v2.2.1 --version
+./FastHasher-v2.2.1 /data -a blake3 -j 8 -o result.json
+./FastHasher-v2.2.1 /data -a all -o - --format ndjson -q --no-log > out.ndjson
 ```
 
 - **自包含**：产物内含 .NET 运行时，无需安装 .NET；但依赖系统 `glibc`（≥ 2.28）与 `OpenSSL`（1.1.1+ 或 3.x）。已启用 `InvariantGlobalization`，不依赖 ICU。
@@ -134,14 +134,14 @@ chmod +x FastHasher-v2.2.0
 不带任何参数运行（双击可执行文件），或显式加 `-i` / `--interactive`：
 
 ```powershell
-.\FastHasher-v2.2.0.exe          # 双击即进入向导
-.\FastHasher-v2.2.0.exe -i
-.\FastHasher-v2.2.0.exe interactive
+.\FastHasher-v2.2.1.exe          # 双击即进入向导
+.\FastHasher-v2.2.1.exe -i
+.\FastHasher-v2.2.1.exe interactive
 ```
 
 ```
 ==================================================
-  FastHasher v2.2.0  交互式模式
+  FastHasher v2.2.1  交互式模式
   输入 5 或 q 退出；Ctrl+C 可中止正在执行的任务
 ==================================================
 
@@ -162,39 +162,39 @@ chmod +x FastHasher-v2.2.0
 
 ```powershell
 # 计算单个文件（默认生成 hashes_<时间戳>.json）
-.\FastHasher-v2.2.0.exe 我的文件.txt
+.\FastHasher-v2.2.1.exe 我的文件.txt
 
 # 递归处理当前目录所有 txt，并显示统计与图表
-.\FastHasher-v2.2.0.exe *.txt -r --stats
+.\FastHasher-v2.2.1.exe *.txt -r --stats
 
 # 8 线程，多算法，按大小过滤
-.\FastHasher-v2.2.0.exe E:\test -a md5,sha256 -j 8 --min-size 1MB
+.\FastHasher-v2.2.1.exe E:\test -a md5,sha256 -j 8 --min-size 1MB
 
 # 全算法（md5/sha1/sha256/sha512/blake3），结果以 NDJSON 输出到 stdout
-.\FastHasher-v2.2.0.exe *.iso -a all -o - --format ndjson -q
+.\FastHasher-v2.2.1.exe *.iso -a all -o - --format ndjson -q
 
 # 纯顺序处理
-.\FastHasher-v2.2.0.exe large-files\*.dat -j 1
+.\FastHasher-v2.2.1.exe large-files\*.dat -j 1
 
 # 从文件列表读路径；文件列表为 - 时读标准输入
-.\FastHasher-v2.2.0.exe --file-list files.txt -j auto
-Get-ChildItem *.iso | ForEach-Object FullName | .\FastHasher-v2.2.0.exe -f -
+.\FastHasher-v2.2.1.exe --file-list files.txt -j auto
+Get-ChildItem *.iso | ForEach-Object FullName | .\FastHasher-v2.2.1.exe -f -
 
 # 响应文件传参（每行一个参数）
-.\FastHasher-v2.2.0.exe @args.rsp
+.\FastHasher-v2.2.1.exe @args.rsp
 
 # 验证：默认生成 <原名>_verify_<时间戳>.json
-.\FastHasher-v2.2.0.exe verify hashes_20260101_120000.json
+.\FastHasher-v2.2.1.exe verify hashes_20260101_120000.json
 
 # 验证并输出文本报告到指定文件
-.\FastHasher-v2.2.0.exe verify hashes.json --format text -o report.txt
+.\FastHasher-v2.2.1.exe verify hashes.json --format text -o report.txt
 
 # 只验证路径中含 backup 的记录
-.\FastHasher-v2.2.0.exe verify hashes.json backup
+.\FastHasher-v2.2.1.exe verify hashes.json backup
 
 # 帮助 / 版本
-.\FastHasher-v2.2.0.exe -h
-.\FastHasher-v2.2.0.exe -v
+.\FastHasher-v2.2.1.exe -h
+.\FastHasher-v2.2.1.exe -v
 ```
 
 ---
@@ -264,8 +264,8 @@ FastHasher help | version
 | 退出码 | 含义 |
 |--------|------|
 | `0` | 全部成功 |
-| `1` | 存在失败文件、缺失文件或哈希不匹配（验证不通过） |
-| `2` | 参数错误、文件不存在、验证异常 |
+| `1` | 存在失败文件、缺失文件、哈希不匹配，或**没有任何可处理的文件/记录**（路径写错、空目录） |
+| `2` | 参数错误、验证异常 |
 | `130` | 用户按 Ctrl+C 取消 |
 
 ### 已废弃参数
@@ -305,7 +305,7 @@ FastHasher help | version
 {
   "metadata": {
     "generated": "2026-11-09 10:30:12",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "algorithms": ["MD5", "BLAKE3"],
     "parallel": true,
     "maxDegreeOfParallelism": 12,
@@ -319,7 +319,7 @@ FastHasher help | version
   },
   "files": [
     {
-      "file": "C:\\test\\example.iso",
+      "file": "test\\example.iso",
       "filename": "example.iso",
       "size": "1024",
       "md5": "d41d8cd98f00b204e9800998ecf8427e",
@@ -335,10 +335,12 @@ FastHasher help | version
 
 失败文件不会中断整体流程，对应条目为 `"success": "false"` 并带 `error`、`error_type`。
 
+> `file` 记录的是**相对当前工作目录**的路径（跨盘符等无法相对化的场景回退为绝对路径），`filename` 为纯文件名。因此报告可以连同文件一起搬到其它目录或机器后继续 `verify`；`verify` 在按记录路径找不到文件时，会依次尝试相对当前目录、相对报告所在目录、以及按尾部路径片段匹配。
+
 ### text：人类可读
 
 ```
-FastHasher 2.2.0 | 生成时间: 2026-11-09 10:30:12
+FastHasher 2.2.1 | 生成时间: 2026-11-09 10:30:12
 算法: MD5, BLAKE3 | 文件数: 2 | 总大小: 1.5 MB | 用时: 0.42 秒
 
 C:\test\a.iso
@@ -430,13 +432,14 @@ C:\test\a.iso
 
 ## 🚀 版本信息
 
-### 当前版本：v2.2.0
+### 当前版本：v2.2.1
 
 - **新增 BLAKE3**：`-a blake3` / `-a all`，纯托管实现，大小文件两条路径均已验证官方向量。
 - **交互式向导**：无参数或 `-i` 进入，计算/验证/基准三套问答流程，执行前预览等价命令行。
 - **参数体系重构（2.0.0）**：统一为 `-j` 并发、`-o` 输出、`--format` 格式化、`verify` 子命令；旧参数报错并提示迁移；新增 `-q/--verbose`、`--progress`、`--log/--no-log`、`--no-color`。
 - **输出可靠性**：stdout 与 stderr 彻底分流，UTF-8 无 BOM，统一退出码 `0/1/2/130`。
 - **Linux 支持**：新增 `build.sh`（标准 / small / tiny / clean，可指定 RID），交叉编译自包含单文件产物；路径比较按平台区分大小写，OS 信息改用 `OSDescription`。
+- **健壮性（2.2.1）**：跳过 FIFO/设备/套接字等非常规文件（此前目录含管道文件会挂死）；零匹配返回退出码 `1`；JSON 的 `file` 改存相对路径，报告搬移后仍可 `verify`。
 
 完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 

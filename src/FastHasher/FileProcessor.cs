@@ -140,9 +140,13 @@ namespace FastHasher
         private readonly List<(double sizeMB, double timeMs)> performanceData = new List<(double, double)>();
 
         /// <summary>
-        /// 进程退出码：0 全部成功，1 存在失败文件，130 用户取消
+        /// 进程退出码：0 全部成功，1 存在失败文件或没有可处理的文件，130 用户取消。
+        /// 零匹配（路径写错、空目录）也会返回 1，避免脚本静默通过。
         /// </summary>
-        public int ExitCode => canceled ? 130 : (failedFiles > 0 ? 1 : 0);
+        public int ExitCode => canceled ? 130
+            : failedFiles > 0 ? 1
+            : successFiles == 0 ? 1
+            : 0;
 
         public FileProcessor(CliOptions options)
         {
@@ -1183,12 +1187,21 @@ namespace FastHasher
             ProgressDisplay.WriteInfo(string.Format("文件模式展开完成，找到 {0} 个文件", files.Count));
             
             // 文件大小过滤（在文件收集之后进行）
+            int skippedSpecial = 0;
             var filteredFiles = files.Where(f => {
                 try
                 {
                     var fileInfo = new FileInfo(f);
                     if (!fileInfo.Exists) return false;
-                    
+
+                    // FIFO / 字符设备 / 块设备 / 套接字：读取可能永久阻塞（如无写端 FIFO），跳过
+                    if (!FileTypeHelper.IsRegularFile(f))
+                    {
+                        skippedSpecial++;
+                        ProgressDisplay.WriteToLog(string.Format("跳过非常规文件: {0}", f));
+                        return false;
+                    }
+
                     var size = fileInfo.Length;
                     bool sizeOk = size >= minFileSize && size <= maxFileSize;
                     
@@ -1209,6 +1222,11 @@ namespace FastHasher
                 }
             }).ToList();
             
+            if (skippedSpecial > 0)
+            {
+                ProgressDisplay.WriteWarning(string.Format("已跳过 {0} 个非常规文件（FIFO/设备/套接字）", skippedSpecial));
+            }
+
             ProgressDisplay.WriteInfo(string.Format("文件大小过滤完成，剩余 {0} 个文件", filteredFiles.Count));
             
             return filteredFiles.OrderBy(f => f).ToList();

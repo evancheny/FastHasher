@@ -138,7 +138,8 @@ namespace FastHasher
         {
             var results = new Dictionary<string, string>
             {
-                { "file", filePath },
+                // 存相对路径：报告可与文件一起搬到其它机器/目录后继续 verify
+                { "file", PortablePath.ToPortable(filePath) },
                 { "filename", Path.GetFileName(filePath) }
             };
 
@@ -148,6 +149,15 @@ namespace FastHasher
                 {
                     results["success"] = "false";
                     results["error"] = "文件不存在";
+                    return results;
+                }
+
+                // FIFO / 字符设备 / 块设备 / 套接字不具备普通文件的读取语义，
+                // 无写端的 FIFO 会永久阻塞，直接跳过
+                if (!FileTypeHelper.IsRegularFile(filePath))
+                {
+                    results["success"] = "false";
+                    results["error"] = "非常规文件（FIFO/设备/套接字），已跳过";
                     return results;
                 }
 

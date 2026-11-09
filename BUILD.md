@@ -47,7 +47,7 @@
 ```
 
 - 完整功能，未额外加裁剪/压缩参数（裁剪与 R2R 由 csproj 决定）
-- Windows 约 19.3MB（v2.2.0 实测 20,268,343 字节）；Linux 约 20.1MB（21,036,718 字节）
+- Windows 约 19.3MB（v2.2.1 实测 20,280,631 字节）；Linux 约 20.1MB（21,045,422 字节）
 - 适合日常使用与分发
 
 **输出**：`dist/FastHasher-v<版本>.exe`（Windows）或 `dist/FastHasher-v<版本>`（Linux）
@@ -112,8 +112,8 @@
 
 ```
 dist/
-├── FastHasher-v2.2.0.exe   # Windows x64：单文件、自包含
-└── FastHasher-v2.2.0       # Linux x64：ELF、需 chmod +x
+├── FastHasher-v2.2.1.exe   # Windows x64：单文件、自包含
+└── FastHasher-v2.2.1       # Linux x64：ELF、需 chmod +x
 ```
 
 `dist/` 已被 `.gitignore` 排除，产物不进版本库；发版通过 GitHub / Gitee 的 Release 附件分发。
@@ -140,8 +140,9 @@ dotnet publish src\FastHasher\FastHasher.csproj `
 - 首次会下载 `linux-x64` 的 runtime pack（约 100MB+），之后可离线复用。
 - 产物是 ELF 可执行文件（头部 `7F 45 4C 46`），**无法在 Windows 上运行**，脚本会跳过冒烟测试并提示。
 - 用官方 runtime pack 交叉编译，产物要求目标机 glibc ≥ 2.28、OpenSSL 1.1.1+/3.x（规划基线为 Ubuntu 22.04 / glibc 2.35）。
-- 当前状态：交叉编译与 ELF 头校验已完成，**尚未在 Linux 实机运行回归**；首次发布前请按下方回归清单在目标机走一遍。
-- 复制到目标机后如无执行权限：`chmod +x FastHasher-v2.2.0`。用 `tar.gz` 分发可保留权限，zip 会丢失。
+- 实测环境：Rocky Linux 10.2（glibc 2.39、OpenSSL 3.5.5、x86_64），18 项回归 + 哈希对拍（`md5sum` / `sha1sum` / `sha256sum` / `sha512sum`）全部通过，SIGINT 取消退出码 `130`。
+- 非常规文件判定使用 `fstat`（glibc ≥ 2.33 提供该符号）：更低的 glibc 上会自动退化为「不检查」，不会崩溃，但目录中的 FIFO 仍可能阻塞。
+- 复制到目标机后如无执行权限：`chmod +x FastHasher-v2.2.1`。用 `tar.gz` 分发可保留权限，zip 会丢失。
 
 ## 发布参数
 
@@ -191,37 +192,42 @@ dotnet publish src\FastHasher\FastHasher.csproj `
 ```powershell
 # Windows
 # 1. 基本运行
-.\dist\FastHasher-v2.2.0.exe --version
-.\dist\FastHasher-v2.2.0.exe -h
+.\dist\FastHasher-v2.2.1.exe --version
+.\dist\FastHasher-v2.2.1.exe -h
 
 # 2. 全算法计算（验证 BLAKE3 与哈希路径）
-.\dist\FastHasher-v2.2.0.exe .\LICENSE -a all -o - --no-log | ConvertFrom-Json
+.\dist\FastHasher-v2.2.1.exe .\LICENSE -a all -o - --no-log | ConvertFrom-Json
 
 # 3. 大文件流式路径（>10MB）
-.\dist\FastHasher-v2.2.0.exe big.bin -a blake3,md5 -o - --no-log | ConvertFrom-Json
+.\dist\FastHasher-v2.2.1.exe big.bin -a blake3,md5 -o - --no-log | ConvertFrom-Json
 
 # 4. 计算 + 验证闭环
-.\dist\FastHasher-v2.2.0.exe . -j 2 -o base.json --no-log
-.\dist\FastHasher-v2.2.0.exe verify base.json -o - --format text --no-log
+.\dist\FastHasher-v2.2.1.exe . -j 2 -o base.json --no-log
+.\dist\FastHasher-v2.2.1.exe verify base.json -o - --format text --no-log
 ```
 
 ```bash
 # Linux
-chmod +x dist/FastHasher-v2.2.0
+chmod +x dist/FastHasher-v2.2.1
 
 # 1. 基本运行
-./dist/FastHasher-v2.2.0 --version
-./dist/FastHasher-v2.2.0 -h
+./dist/FastHasher-v2.2.1 --version
+./dist/FastHasher-v2.2.1 -h
 
 # 2. 全算法计算
-./dist/FastHasher-v2.2.0 ./LICENSE -a all -o - --no-log
+./dist/FastHasher-v2.2.1 ./LICENSE -a all -o - --no-log
 
 # 3. 大文件流式路径
-./dist/FastHasher-v2.2.0 big.bin -a blake3,md5 -o - --no-log
+./dist/FastHasher-v2.2.1 big.bin -a blake3,md5 -o - --no-log
 
-# 4. 计算 + 验证闭环
-./dist/FastHasher-v2.2.0 . -j 2 -o base.json --no-log
-./dist/FastHasher-v2.2.0 verify base.json -o - --format text --no-log
+# 4. 计算 + 验证闭环（并在换 cwd 后再验证一次，检查路径兜底解析）
+./dist/FastHasher-v2.2.1 . -j 2 -o base.json --no-log
+./dist/FastHasher-v2.2.1 verify base.json -o - --format text --no-log
+cd /tmp && <产物绝对路径> verify <base.json 绝对路径> -o - --format text --no-log
+
+# 5. 非常规文件与退出码
+mkfifo /tmp/fifo-test && timeout 5 ./dist/FastHasher-v2.2.1 /tmp -a md5 -q --no-log; echo "含 FIFO 的目录应正常返回，不挂死"
+./dist/FastHasher-v2.2.1 /nonexistent -a md5 -q --no-log; echo "路径不存在应返回 1"
 ```
 
 ## 版本号管理
@@ -242,14 +248,14 @@ chmod +x dist/FastHasher-v2.2.0
 .\build.ps1 clean linux-x64  # Linux
 # 3. 提交并双推
 git add .
-git commit -m "v2.2.0: ..."
+git commit -m "v2.2.1: ..."
 git push all main
 # 4. 打 tag 并推送
-git tag v2.2.0
-git push all v2.2.0
+git tag v2.2.1
+git push all v2.2.1
 ```
 
-随后在两个平台的 Release 页面创建版本，上传 `dist/FastHasher-v2.2.0.exe` 与 `dist/FastHasher-v2.2.0`（Linux 产物建议先 `chmod +x` 再打成 `tar.gz`，以保留可执行位）。`.gitignore` 已排除 `dist/`，产物不进版本库。
+随后在两个平台的 Release 页面创建版本，上传 `dist/FastHasher-v2.2.1.exe` 与 `dist/FastHasher-v2.2.1`（Linux 产物建议先 `chmod +x` 再打成 `tar.gz`，以保留可执行位）。`.gitignore` 已排除 `dist/`，产物不进版本库。
 
 ## 常见问题
 
@@ -284,13 +290,13 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 ### Q7：Linux 上提示 `GLIBC_2.xx not found` 或 `Permission denied`？
 
 **A**：
-- `Permission denied`：产物缺少可执行位，执行 `chmod +x FastHasher-v2.2.0`。用 zip 分发会丢权限，建议 `tar.gz`。
+- `Permission denied`：产物缺少可执行位，执行 `chmod +x FastHasher-v2.2.1`。用 zip 分发会丢权限，建议 `tar.gz`。
 - `GLIBC_2.xx not found`：目标系统 glibc 低于产物要求（约 2.28）。CentOS 7、Debian 9 等老系统不支持，需换构建环境重发或在容器中运行。
 - `libssl` 相关报错：目标机 OpenSSL 版本过低，需 1.1.1+ 或 3.x。
 
 ## 版本信息
 
-- **当前版本**：2.2.0
+- **当前版本**：2.2.1
 - **构建工具**：.NET 8.0 SDK
 - **目标平台**：Windows x64、Linux x64（可在 Windows 上交叉编译）
 - **发布方式**：单文件、自包含 exe
