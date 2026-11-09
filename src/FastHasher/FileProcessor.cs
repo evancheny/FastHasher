@@ -906,8 +906,8 @@ namespace FastHasher
             double averageSpeedMBps = processingTimeSeconds > 0 ? (totalBytes / (1024.0 * 1024.0)) / processingTimeSeconds : 0;
             double averageFileProcessingTimeMs = results.Count > 0 ? processingTimeSeconds * 1000.0 / results.Count : 0;
 
-            // 获取操作系统信息
-            string osVersion = Environment.OSVersion.ToString();
+            // 获取操作系统信息：Unix 下 Environment.OSVersion 只给内核版本，OSDescription 更具可读性
+            string osVersion = System.Runtime.InteropServices.RuntimeInformation.OSDescription;
 
             // 创建包含metadata的输出结构
             var output = new HashOutput
@@ -1044,7 +1044,13 @@ namespace FastHasher
         // 修复后的文件模式展开方法，使用 EnumerationOptions 忽略无权限访问的子目录
         private static List<string> ExpandFilePatterns(List<string> patterns, bool recursive, long minFileSize, long maxFileSize)
         {
-            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Windows 文件系统大小写不敏感，Linux 严格区分大小写；按平台选择比较器，
+            // 否则 Linux 上 A.txt 与 a.txt 会被当成同一文件而漏算
+            var pathComparer = OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+
+            var files = new HashSet<string>(pathComparer);
             
             // 创建支持忽略访问错误的枚举选项
             var enumerationOptions = new EnumerationOptions

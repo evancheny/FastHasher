@@ -9,6 +9,8 @@
 *.xml text
 *.ps1 text eol=crlf
 *.bat text eol=crlf
+# Linux/macOS 构建脚本必须保持 LF，否则 shebang 后 CR 会导致 bad interpreter
+*.sh text eol=lf
 
 # 二进制
 *.ico binary

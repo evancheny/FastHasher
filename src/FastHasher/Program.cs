@@ -279,6 +279,9 @@ namespace FastHasher
         /// </summary>
         static void WaitForKey()
         {
+            // 输入被重定向（管道、CI、无终端）时不提示也不等待
+            if (Console.IsInputRedirected) return;
+
             try
             {
                 Console.WriteLine();
@@ -287,7 +290,7 @@ namespace FastHasher
             }
             catch (InvalidOperationException)
             {
-                // 标准输入被重定向，无需等待
+                // 无可用控制台，忽略
             }
         }
 

@@ -15,7 +15,7 @@ namespace FastHasher
         /// <summary>
         /// 当前次版本号 (Minor)
         /// </summary>
-        public const int Minor = 1;
+        public const int Minor = 2;
 
         /// <summary>
         /// 当前修订号 (Patch)
@@ -25,17 +25,17 @@ namespace FastHasher
         /// <summary>
         /// 完整版本号字符串 (格式: Major.Minor.Patch)
         /// </summary>
-        public const string Version = "2.1.0";
+        public const string Version = "2.2.0";
 
         /// <summary>
         /// 程序集版本号字符串 (格式: Major.Minor.Patch.0)
         /// </summary>
-        public const string AssemblyVersion = "2.1.0.0";
+        public const string AssemblyVersion = "2.2.0.0";
 
         /// <summary>
         /// 版本描述信息
         /// </summary>
-        public const string InformationalVersion = "2.1.0 - 新增 BLAKE3 支持";
+        public const string InformationalVersion = "2.2.0 - 新增 Linux x64 支持";
 
         /// <summary>
         /// 获取完整版本号字符串

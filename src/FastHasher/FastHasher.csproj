@@ -1,16 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <ApplicationIcon>FastHasher.ico</ApplicationIcon>
     <TargetFramework>net8.0</TargetFramework>
     <OutputEncoding>UTF-8</OutputEncoding>
     <ConsoleOutputEncoding>UTF-8</ConsoleOutputEncoding>
     <CharacterSet>Unicode</CharacterSet>
     <Nullable>enable</Nullable>
-    <!-- 发布配置 -->
+    <!-- 发布配置：RID 与自包含由构建脚本用 -r 指定，便于跨平台产出 -->
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <DebugType>none</DebugType>
@@ -20,16 +17,15 @@
     <TrimMode>link</TrimMode>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PlatformTarget>x64</PlatformTarget>
     <Optimize>true</Optimize>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnablePreviewFeatures>false</EnablePreviewFeatures>
     <AssemblyName>FastHasher</AssemblyName>
     <RootNamespace>FastHasher</RootNamespace>
-    <Version>2.1.0</Version>
-    <FileVersion>2.1.0</FileVersion>
-    <AssemblyVersion>2.1.0.0</AssemblyVersion>
-    <InformationalVersion>2.1.0 - 新增 BLAKE3 支持</InformationalVersion>
+    <Version>2.2.0</Version>
+    <FileVersion>2.2.0</FileVersion>
+    <AssemblyVersion>2.2.0.0</AssemblyVersion>
+    <InformationalVersion>2.2.0 - 新增 Linux x64 支持</InformationalVersion>
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishReadyToRunShowWarnings>false</PublishReadyToRunShowWarnings>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -38,6 +34,11 @@
     <EnableDynamicLoading>false</EnableDynamicLoading>
     <!-- 使用 AOT 编译（可选，会进一步减小大小但可能影响兼容性） -->
     <!-- <PublishAot>true</PublishAot> -->
+  </PropertyGroup>
+
+  <!-- Windows 专属：程序图标仅在对 Windows 目标发布时生效，Linux 产物忽略 -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'win-x64'">
+    <ApplicationIcon>FastHasher.ico</ApplicationIcon>
   </PropertyGroup>
   
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -59,7 +60,7 @@
   <ItemGroup>
     <PackageReference Include="Blake3" Version="3.0.2" />
     <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
-    <Content Include="FastHasher.ico">
+    <Content Include="FastHasher.ico" Condition="'$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'win-x64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
