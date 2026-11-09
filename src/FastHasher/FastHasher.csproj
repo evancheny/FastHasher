@@ -1,0 +1,78 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ApplicationIcon>FastHasher.ico</ApplicationIcon>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputEncoding>UTF-8</OutputEncoding>
+    <ConsoleOutputEncoding>UTF-8</ConsoleOutputEncoding>
+    <CharacterSet>Unicode</CharacterSet>
+    <Nullable>enable</Nullable>
+    <!-- 发布配置 -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <!-- 启用裁剪以减小文件大小 -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>link</TrimMode>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <Optimize>true</Optimize>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnablePreviewFeatures>false</EnablePreviewFeatures>
+    <AssemblyName>FastHasher</AssemblyName>
+    <RootNamespace>FastHasher</RootNamespace>
+    <Version>2.1.0</Version>
+    <FileVersion>2.1.0</FileVersion>
+    <AssemblyVersion>2.1.0.0</AssemblyVersion>
+    <InformationalVersion>2.1.0 - 新增 BLAKE3 支持</InformationalVersion>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishReadyToRunShowWarnings>false</PublishReadyToRunShowWarnings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- 禁用 JIT 热重载以减小体积 -->
+    <EnableDynamicLoading>false</EnableDynamicLoading>
+    <!-- 使用 AOT 编译（可选，会进一步减小大小但可能影响兼容性） -->
+    <!-- <PublishAot>true</PublishAot> -->
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <WarningsNotAsErrors>CS8618;CS8625;CS8600;CS8604;CS8601;IL2026;IL2104</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <Optimize>false</Optimize>
+    <DebugType>full</DebugType>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <WarningsNotAsErrors>CS8618;CS8625;CS8600;CS8604;CS8601;CS8602;IL2026;IL2104</WarningsNotAsErrors>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Blake3" Version="3.0.2" />
+    <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
+    <Content Include="FastHasher.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  
+  <!-- 裁剪警告处理 -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="System.IO.Hashing" />
+    <TrimmerRootAssembly Include="Blake3" />
+    <TrimmerRootAssembly Include="System.Text.Json" />
+  </ItemGroup>
+  
+  <!-- 保留验证报告相关类不被裁剪 -->
+  <ItemGroup>
+    <TrimmerRootDescriptor Include="Linker.xml" />
+  </ItemGroup>
+</Project>

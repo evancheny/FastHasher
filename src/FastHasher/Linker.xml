@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<linker>
+  <assembly fullname="FastHasher">
+    <!-- 保留所有JSON序列化相关类 -->
+    <type fullname="FastHasher.HashOutput" preserve="all" />
+    <type fullname="FastHasher.HashMetadata" preserve="all" />
+    
+    <!-- 保留所有验证报告相关类 -->
+    <type fullname="FastHasher.VerificationReport" preserve="all" />
+    <type fullname="FastHasher.VerificationMetadata" preserve="all" />
+    <type fullname="FastHasher.VerificationSummary" preserve="all" />
+    <type fullname="FastHasher.VerificationIssuesSummary" preserve="all" />
+    <type fullname="FastHasher.VerificationProblemFiles" preserve="all" />
+    <type fullname="FastHasher.HashMismatchFile" preserve="all" />
+    <type fullname="FastHasher.AlgorithmMismatchDetail" preserve="all" />
+    <type fullname="FastHasher.MissingFile" preserve="all" />
+    <type fullname="FastHasher.ErrorFile" preserve="all" />
+    <type fullname="FastHasher.VerificationResultItem" preserve="all" />
+    <type fullname="FastHasher.VerificationResult" preserve="all" />
+    <type fullname="FastHasher.AlgorithmComparison" preserve="all" />
+  </assembly>
+</linker>

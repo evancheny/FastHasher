@@ -1,0 +1,16 @@
+# 自动处理换行符：仓库内统一 LF，检出时按平台转换
+* text=auto
+
+# 源码与文本
+*.cs text
+*.csproj text
+*.md text
+*.json text
+*.xml text
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# 二进制
+*.ico binary
+*.exe binary
+*.dll binary
